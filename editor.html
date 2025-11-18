@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Editor Visual - NIQUEE FÚTBOL</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:#f5f5f5;margin:0;padding:20px}
+    h1{text-align:center}
+    .card{background:#fff;padding:20px;border-radius:8px;max-width:600px;margin:auto;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+    label{display:block;margin:8px 0 4px;font-weight:bold}
+    input[type=text],input[type=color],input[type=file]{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px}
+    button{width:100%;padding:10px;border:none;border-radius:4px;background:#415a77;color:#fff;font-size:1rem;cursor:pointer}
+    button:hover{background:#5a7fb0}
+    #preview{margin-top:20px;padding:15px;border:1px dashed #ccc;border-radius:4px;background:#fafafa}
+  </style>
+</head>
+<body>
+  <h1>🎨 Editor Visual - NIQUEE FÚTBOL</h1>
+  <div class="card">
+    <h2>1. Logo del equipo</h2>
+    <input type="file" id="logoFile" accept="image/*">
+    <h2>2. Colores</h2>
+    <label>Fondo página</label><input type="color" id="colFondo" value="#0d1b2a">
+    <label>Botones</label><input type="color" id="colBotones" value="#415a77">
+    <label>Texto</label><input type="color" id="colTexto" value="#ffff00">
+    <h2>3. Textos</h2>
+    <label>Nombre del club</label><input type="text" id="txtClub" value="NIQUEE FÚTBOL CLUB">
+    <h2>4. Vista previa</h2>
+    <div id="preview" style="background:#0d1b2a;color:#ffff00;padding:15px;border-radius:6px">
+      <img id="imgPrev" src="https://cdn-icons-png.flaticon.com/512/4389/4389290.png" height="40">
+      <span id="txtPrev">NIQUEE FÚTBOL CLUB</span>
+    </div>
+    <br>
+    <button onclick="generar()">Generar archivo personalizado</button>
+  </div>
+
+  <script>
+    // Vista previa en tiempo real
+    logoFile.addEventListener('change', e => {
+      const reader = new FileReader();
+      reader.onload = () => imgPrev.src = reader.result;
+      reader.readAsDataURL(e.target.files[0]);
+    });
+    colFondo.addEventListener('input', e => preview.style.backgroundColor = e.target.value);
+    colBotones.addEventListener('input', e => preview.style.setProperty('--col-btn', e.target.value));
+    colTexto.addEventListener('input', e => preview.style.color = e.target.value);
+    txtClub.addEventListener('input', e => txtPrev.textContent = e.target.value);
+
+    // Generar archivo HTML personalizado
+    function generar() {
+      const logo = imgPrev.src;
+      const fondo = colFondo.value;
+      const boton = colBotones.value;
+      const texto = colTexto.value;
+      const club = txtClub.value;
+
+      const htmlPersonalizado = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>${club}</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:${fondo};color:${texto};line-height:1.4;min-height:100vh;display:flex;flex-direction:column}
+    header{background:#1b263b;padding:15px;text-align:center;position:sticky;top:0;z-index:10}
+    header img{height:60px;vertical-align:middle}
+    header h1{display:inline-block;margin-left:10px;font-size:1.6rem}
+    main{flex:1;padding:20px 10px;max-width:900px;margin:auto;width:100%}
+    form{background:#1b263b;padding:20px;border-radius:12px;display:grid;gap:10px}
+    input,select,button{width:100%;padding:8px;border:none;border-radius:6px;font-size:1rem}
+    button{background:${boton};color:${texto};font-weight:bold;cursor:pointer}
+    button:hover{filter:brightness(1.1)}
+    .lista{background:#1b263b;padding:15px;border-radius:12px;margin-top:20px}
+    .item{background:#415a77;margin:8px 0;padding:10px;border-radius:8px;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+    .item img{max-width:80px;border-radius:6px}
+    .item form{max-width:250px;margin:0}
+    @media(max-width:600px){.item{flex-direction:column;align-items:flex-start}}
+  </style>
+</head>
+<body>
+  <header>
+    <img src="${logo}" alt="Logo">
+    <h1>${club}</h1>
+  </header>
+  <main>
+    <div class="lista">
+      <h2>Plantilla</h2>
+      <!-- Aquí irá el bucle de jugadores -->
+    </div>
+    <div style="text-align:center;margin-top:20px">
+      <a href="/admin" style="background:${boton};padding:10px 20px;border-radius:8px;color:${texto};text-decoration:none;">Panel Admin</a>
+    </div>
+  </main>
+</body>
+</html>`;
+
+      // Descargar archivo
+      const blob = new Blob([htmlPersonalizado], {type:'text/html'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'index_personalizado.html';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
