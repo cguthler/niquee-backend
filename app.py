@@ -141,46 +141,92 @@ INDEX_HTML = """
   <title>⚽ NIQUEE FÚTBOL CLUB</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    body{font-family:Segoe UI,system-ui,sans-serif;background:#0d1b2a;color:#ffff00;margin:0;padding:20px}
-    h1{text-align:center;margin-bottom:30px}
-    form{background:#1b263b;padding:20px;border-radius:12px;max-width:400px;margin:auto}
-    label{display:block;margin:8px 0 4px}
-    input,select{width:100%;padding:8px;border:none;border-radius:6px}
-    button{width:100%;padding:10px;margin-top:12px;border:none;border-radius:8px;background:#415a77;color:#ffff00;font-weight:bold;cursor:pointer}
-    button:hover{background:#5a7fb0}
-    .lista{background:#1b263b;margin-top:30px;padding:15px;border-radius:12px}
-    .item{background:#415a77;margin:8px 0;padding:10px;border-radius:8px}
-    img{max-width:120px;border-radius:6px}
-    a{color:#ffff00}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Segoe UI,system-ui,sans-serif;background:#0d1b2a;color:#ffff00;font-size:13px;line-height:1.3}
+    h1{text-align:center;padding:12px 0 8px;font-size:1.4rem}
+    .wrap{display:flex;gap:15px;max-width:1000px;margin:auto;padding:0 15px 30px}
+    /* -------- columna izquierda -------- */
+    .col-left{flex:0 0 260px;background:#1b263b;border-radius:10px;padding:10px;max-height:75vh;overflow-y:auto}
+    .logo-titulo{text-align:center;margin-bottom:10px}
+    .logo-titulo img{height:60px;border-radius:6px}
+    .logo-titulo h2{margin-top:6px;font-size:1rem}
+    .player{display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#415a77;padding:6px;border-radius:6px}
+    .player img{width:45px;height:45px;object-fit:cover;border-radius:50%}
+    .info{font-size:11px}.info strong{display:block;font-size:12px;margin-bottom:1px}
+    /* -------- columna derecha -------- */
+    .col-right{flex:1 1 300px;background:#1b263b;border-radius:10px;padding:12px;text-align:center}
+    .btns{margin-bottom:12px;display:flex;justify-content:center;gap:10px}
+    .btn{background:#415a77;color:#ffff00;padding:6px 12px;border:none;border-radius:6px;cursor:pointer;font-size:12px;text-decoration:none}
+    .btn:hover{background:#5a7fb0}
+    .gallery{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .gallery img{width:100%;height:110px;object-fit:cover;border-radius:6px}
+    /* -------- modal -------- */
+    .modal{display:none;position:fixed;z-index:999;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,.7)}
+    .modal-content{background:#1b263b;margin:10% auto;padding:20px;border-radius:10px;width:90%;max-width:500px;color:#ffff00;font-size:12px;line-height:1.4}
+    .close{color:#ffff80;float:right;font-size:18px;font-weight:bold;cursor:pointer}
+    .close:hover{color:#fff}
+    /* -------- pie -------- */
+    footer{text-align:center;padding:10px 5px;font-size:10px;background:#09101a;color:#ffff80;line-height:1.4}
+    @media(max-width:700px){.wrap{flex-direction:column}.col-left{flex:1 1 auto}}
   </style>
 </head>
 <body>
   <h1>⚽ NIQUEE FÚTBOL CLUB</h1>
-  <div class="lista">
-    <h2>Plantilla</h2>
-    {% for j in jugadores %}
-      <div class="item">
-        <strong>{{ j[1] }}</strong> | {{ j[2] }} | {{ j[3] }} | ⚽{{ j[4] }} | 🅰️{{ j[5] }} | Ingreso: {{ j[7] }}
-        {% if j[6] %}
-          <br><img src="{{ url_for('serve_img', name=j[6]) }}" alt="Foto">
-        {% endif %}
-        <br>
-        {% if j[8] %}
-          ✅ PDF subido
-        {% else %}
-          ❌ Sin PDF
-        {% endif %}
-        <form action="{{ url_for('subir_pdf', jugador_id=j[0]) }}" method="post" enctype="multipart/form-data" style="margin-top:8px;">
-          <input type="file" name="pdf" accept="application/pdf" required>
-          <button type="submit">Subir PDF</button>
-        </form>
+
+  <div class="wrap">
+    <!--  COLUMNA IZQUIERDA  -->
+    <section class="col-left">
+      <div class="logo-titulo">
+        <img src="{{ url_for('static', filename='uploads/logonegronique.jpg') }}" alt="Logo">
+        <h2>Plantilla de jugadores</h2>
       </div>
-    {% endfor %}
+      {% for j in jugadores %}
+        <div class="player">
+          <img src="{{ url_for('serve_img', name=j[6]) }}" alt="Foto">
+          <div class="info">
+            <strong>{{ j[1] }}</strong>
+            <span>{{ j[2] }} • {{ j[3] }}</span>
+            <span>G:{{ j[4] }} • A:{{ j[5] }}</span>
+          </div>
+        </div>
+      {% endfor %}
+    </section>
+
+    <!--  COLUMNA DERECHA  -->
+    <section class="col-right">
+      <div class="btns">
+        <a href="/admin" class="btn">Panel Admin</a>
+        <button class="btn" onclick="document.getElementById('infoModal').style.display='block'">+ Info</button>
+      </div>
+      <h2>Fotos del Equipo</h2>
+      <div class="gallery">
+        <img src="{{ url_for('static', filename='uploads/niqueeblanco.jpg') }}" alt="Equipo 1">
+        <img src="{{ url_for('static', filename='uploads/logo.jpg') }}" alt="Equipo 2">
+        <img src="{{ url_for('static', filename='uploads/gruponique.jpg') }}" alt="Equipo 3">
+        <img src="{{ url_for('static', filename='uploads/niqueazul.jpg') }}" alt="Equipo 4">
+      </div>
+    </section>
   </div>
-  <br>
-  <div style="text-align:center">
-    <a href="/admin" style="background:#415a77;padding:10px 20px;border-radius:8px;color:#ffff00;text-decoration:none;">Panel Admin</a>
+
+  <!--  MODAL  -->
+  <div id="infoModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="document.getElementById('infoModal').style.display='none'">&times;</span>
+      <h3>Información del Club</h3>
+      <p>
+        Niquee Fútbol Club nació en 2017 en Guayaquil con la filosofía de adoracion a Dios, juego limpio y trabajo en equipo.
+        Participamos en ligas barriales y torneos locales. ¡Buscamos talento honestidad lealtad!<br>
+        Entrenamientos: lun/mié/vie 18:00-20:00 | Cancha: sinteticas futbol<br>
+        Redes: <a href="https://www.facebook.com/share/1CWH1PEHMU/" target="_blank" style="color:#ffff80">Facebook</a>
+      </p>
+    </div>
   </div>
+
+  <footer>
+    @transguthler&asociados • Tfns 593958787986-593992123592<br>
+    cguthler@hotmail.com • <a href="https://www.facebook.com/share/1CWH1PEHMU/" target="_blank" style="color:#ffff80">fb.me/share/1CWH1PEHMU</a><br>
+    Guayaquil – Ecuador
+  </footer>
 </body>
 </html>
 """
@@ -214,6 +260,8 @@ ADMIN_PANEL_HTML = """
   </div>
 {% endfor %}
 """
-
+@app.route("/")
+def index():
+    return "¡Hola! Tu editor visual está aquí. Ve a /editor para el formulario."
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
