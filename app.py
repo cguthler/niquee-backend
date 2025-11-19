@@ -300,6 +300,4 @@ ADMIN_PANEL_HTML = """
   </div>
 {% endfor %}
 """
-    @transguthler&asociados • Tfns 593958787986-593992123592 • cguthler@hotmail.com • <a href="https://www.facebook.com/share/1CWH1PEHMU/ " target="_blank" style="color:#ffff80">fb.me/share/1CWH1PEHMU</a> • Guayaquil – Ecuador
-  </footer>
-
+   
