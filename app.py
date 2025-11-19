@@ -210,7 +210,7 @@ INDEX_HTML = """
       <h2>Fotos del Equipo</h2>
       <div class="gallery">
         <img src="{{ url_for('static', filename='uploads/niqueeblanco.jpg') }}" alt="Equipo 1">
-        <img src="{{ url_for('static', filename='uploads/logo.png') }}" alt="Equipo 2">
+        <img src="{{ url_for('static', filename='uploads/niquenegro.jpg') }}" alt="Equipo 2">
         <img src="{{ url_for('static', filename='uploads/gruponique.jpg') }}" alt="Equipo 3">
         <img src="{{ url_for('static', filename='uploads/niqueazul.jpg') }}" alt="Equipo 4">
       </div>
@@ -299,5 +299,4 @@ ADMIN_PANEL_HTML = """
     <a href="/docs/{{ j[8] }}">📄 Ver PDF</a> |
     <a href="/borrar/{{ j[0] }}" onclick="return confirm('¿Borrar?')">🗑️ Borrar</a>
   </div>
-{% endfor %}
-"""
+{% endfor %}"
