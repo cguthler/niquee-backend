@@ -260,8 +260,6 @@ ADMIN_PANEL_HTML = """
   </div>
 {% endfor %}
 """
-@app.route("/")
-def index():
-    return "¡Hola! Tu editor visual está aquí. Ve a /editor para el formulario."
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
