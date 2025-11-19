@@ -299,4 +299,5 @@ ADMIN_PANEL_HTML = """
     <a href="/docs/{{ j[8] }}">📄 Ver PDF</a> |
     <a href="/borrar/{{ j[0] }}" onclick="return confirm('¿Borrar?')">🗑️ Borrar</a>
   </div>
-{% endfor %}"
+{% endfor %}
+"""
