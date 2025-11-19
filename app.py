@@ -247,13 +247,13 @@ INDEX_HTML = """
         Niquee Fútbol Club nació en 2017 en Guayaquil con la filosofía de adoración a Dios, juego limpio y trabajo en equipo.
         Participamos en ligas barriales y torneos locales. ¡Buscamos talento, honestidad, lealtad!<br>
         Entrenamientos: lun/mié/vie 18:00-20:00 | Cancha: sintéticas fútbol<br>
-        Redes: <a href="https://www.facebook.com/share/1CWH1PEHMU/" target="_blank" style="color:#ffff80">Facebook</a>
+        Redes: <a href="https://www.facebook.com/share/1CWH1PEHMU/ " target="_blank" style="color:#ffff80">Facebook</a>
       </p>
     </div>
   </div>
 
   <footer>
-    @transguthler&asociados • Tfns 593958787986-593992123592 • cguthler@hotmail.com • <a href="https://www.facebook.com/share/1CWH1PEHMU/" target="_blank" style="color:#ffff80">fb.me/share/1CWH1PEHMU</a> • Guayaquil – Ecuador
+    @transguthler&asociados • Tfns 593958787986-593992123592 • cguthler@hotmail.com • <a href="https://www.facebook.com/share/1CWH1PEHMU/ " target="_blank" style="color:#ffff80">fb.me/share/1CWH1PEHMU</a> • Guayaquil – Ecuador
   </footer>
 
   <script>
