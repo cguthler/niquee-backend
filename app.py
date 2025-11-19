@@ -253,10 +253,9 @@ INDEX_HTML = """
   </div>
 
   <footer>
-    @transguthler&asociados • Tfns 593958787986-593992123592 • cguthler@hotmail.com • <a href="https://www.facebook.com/share/1CWH1PEHMU/ " target="_blank" style="color:#ffff80">fb.me/share/1CWH1PEHMU</a> • Guayaquil – Ecuador
-  </footer>
 
-  <script>
+ADMIN_PANEL_HTML = """
+<script>
     function openPlayerModal(id, nombre, anio, posicion, goles, asistencias, imagen, fechaIng) {
       document.getElementById('playerModal').style.display = 'block';
       document.getElementById('playerImg').src = "{{ url_for('serve_img', name='') }}" + imagen;
@@ -267,10 +266,10 @@ INDEX_HTML = """
       document.getElementById('playerAssists').textContent = asistencias;
       document.getElementById('playerDate').textContent = fechaIng;
       document.getElementById('pdfForm').action = "/subir_pdf/" + id;
-      }
-    </script>
-  </html>
-  """
+    }
+</script>
+</html>
+"""
 
 ADMIN_LOGIN_HTML = """
 <form method="post" style="max-width:300px;margin:auto">
@@ -301,3 +300,6 @@ ADMIN_PANEL_HTML = """
   </div>
 {% endfor %}
 """
+    @transguthler&asociados • Tfns 593958787986-593992123592 • cguthler@hotmail.com • <a href="https://www.facebook.com/share/1CWH1PEHMU/ " target="_blank" style="color:#ffff80">fb.me/share/1CWH1PEHMU</a> • Guayaquil – Ecuador
+  </footer>
+
