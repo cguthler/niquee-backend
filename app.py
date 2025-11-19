@@ -267,10 +267,10 @@ INDEX_HTML = """
       document.getElementById('playerAssists').textContent = asistencias;
       document.getElementById('playerDate').textContent = fechaIng;
       document.getElementById('pdfForm').action = "/subir_pdf/" + id;
-    }
-  </script>
-</html>
-"""
+      }
+    </script>
+  </html>
+  """
 
 ADMIN_LOGIN_HTML = """
 <form method="post" style="max-width:300px;margin:auto">
