@@ -1,0 +1,46 @@
+# ---------- HTML ----------
+INDEX_HTML = """
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>⚽ NIQUEE FÚTBOL CLUB</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body{font-family:Segoe UI,system-ui,sans-serif;background:#0d1b2a;color:#ffff00;margin:0;padding:20px}
+    h1{text-align:center;margin-bottom:30px}
+    form{background:#1b263b;padding:20px;border-radius:12px;max-width:400px;margin:auto}
+    label{display:block;margin:8px 0 4px}
+    input,select{width:100%;padding:8px;border:none;border-radius:6px}
+    button{width:100%;padding:10px;margin-top:12px;border:none;border-radius:8px;background:#415a77;color:#ffff00;font-weight:bold;cursor:pointer}
+    button:hover{background:#5a7fb0}
+    .lista{background:#1b263b;margin-top:30px;padding:15px;border-radius:12px}
+    .item{background:#415a77;margin:8px 0;padding:10px;border-radius:8px}
+    img{max-width:120px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <h1>⚽ NIQUEE FÚTBOL CLUB</h1>
+  <form action="/guardar" method="post" enctype="multipart/form-data">
+    <label>Nombre completo</label>
+    <input type="text" name="nombre" required>
+    <label>Año de nacimiento</label>
+    <input type="number" name="anio_nacimiento" required>
+    <label>Posición</label>
+    <input type="text" name="posicion" required>
+    <label>Goles</label>
+    <input type="number" name="goles" required>
+    <label>Asistencias</label>
+    <input type="number" name="asistencias" required>
+    <label>Foto del jugador</label>
+    <input type="file" name="imagen" accept="image/*">
+    <button type="submit">Guardar Jugador</button>
+  </form>
+
+  <div class="lista">
+    <h2>Plantilla</h2>
+   {{filas}}
+  </div>
+</body>
+</html>
+"""
