@@ -140,35 +140,146 @@ INDEX_HTML = """
   <meta charset="utf-8">
   <title>⚽ NIQUEE FÚTBOL CLUB</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:Segoe UI,system-ui,sans-serif;background:#0d1b2a;color:#ffff00;font-size:13px;line-height:1.3}
-    h1{text-align:center;padding:12px 0 8px;font-size:1.4rem}
-    .wrap{display:flex;gap:15px;max-width:1000px;margin:auto;padding:0 15px 30px}
-    /* -------- columna izquierda -------- */
-    .col-left{flex:0 0 260px;background:#1b263b;border-radius:10px;padding:10px;max-height:75vh;overflow-y:auto}
-    .logo-titulo{text-align:center;margin-bottom:10px}
-    .logo-titulo img{height:60px;border-radius:6px}
-    .logo-titulo h2{margin-top:6px;font-size:1rem}
-    .player{display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#415a77;padding:6px;border-radius:6px}
-    .player img{width:45px;height:45px;object-fit:cover;border-radius:50%}
-    .info{font-size:11px}.info strong{display:block;font-size:12px;margin-bottom:1px}
-    /* -------- columna derecha -------- */
-    .col-right{flex:1 1 300px;background:#1b263b;border-radius:10px;padding:12px;text-align:center}
-    .btns{margin-bottom:12px;display:flex;justify-content:center;gap:10px}
-    .btn{background:#415a77;color:#ffff00;padding:6px 12px;border:none;border-radius:6px;cursor:pointer;font-size:12px;text-decoration:none}
-    .btn:hover{background:#5a7fb0}
-    .gallery{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .gallery img{width:100%;height:110px;object-fit:cover;border-radius:6px}
-    /* -------- modal -------- */
-    .modal{display:none;position:fixed;z-index:999;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,.7)}
-    .modal-content{background:#1b263b;margin:10% auto;padding:20px;border-radius:10px;width:90%;max-width:500px;color:#ffff00;font-size:12px;line-height:1.4}
-    .close{color:#ffff80;float:right;font-size:18px;font-weight:bold;cursor:pointer}
-    .close:hover{color:#fff}
-    /* -------- pie -------- */
-    footer{text-align:center;padding:10px 5px;font-size:10px;background:#09101a;color:#ffff80;line-height:1.4}
-    @media(max-width:700px){.wrap{flex-direction:column}.col-left{flex:1 1 auto}}
-  </style>
+ <style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:Segoe UI,system-ui,sans-serif;
+    background:#0d1b2a;
+    color:#ffff00;
+    font-size:16px;          /* antes 13px */
+    line-height:1.5;         /* antes 1.3 */
+  }
+  h1{
+    text-align:center;
+    padding:20px 0 12px;     /* antes 12px 0 8px */
+    font-size:2rem;          /* antes 1.4rem */
+  }
+  .wrap{
+    display:flex;
+    gap:20px;                /* antes 15px */
+    max-width:1200px;        /* antes 1000px */
+    margin:auto;
+    padding:0 20px 40px;     /* antes 0 15px 30px */
+  }
+  /* -------- columna izquierda -------- */
+  .col-left{
+    flex:0 0 320px;          /* antes 260px */
+    background:#1b263b;
+    border-radius:12px;      /* antes 10px */
+    padding:15px;            /* antes 10px */
+    max-height:80vh;
+    overflow-y:auto;
+  }
+  .logo-titulo{margin-bottom:15px}
+  .logo-titulo img{
+    height:80px;             /* antes 60px */
+    border-radius:8px;       /* antes 6px */
+  }
+  .logo-titulo h2{
+    margin-top:10px;
+    font-size:1.2rem;        /* antes 1rem */
+  }
+  .player{
+    display:flex;
+    align-items:center;
+    gap:12px;                /* antes 8px */
+    margin-bottom:12px;      /* antes 8px */
+    background:#415a77;
+    padding:10px;            /* antes 6px */
+    border-radius:8px;       /* antes 6px */
+  }
+  .player img{
+    width:60px;              /* antes 45px */
+    height:60px;
+    object-fit:cover;
+    border-radius:50%;
+  }
+  .info{font-size:14px}     /* antes 11px */
+  .info strong{
+    display:block;
+    font-size:15px;          /* antes 12px */
+    margin-bottom:2px;       /* antes 1px */
+  }
+  /* -------- columna derecha -------- */
+  .col-right{
+    flex:1 1 350px;          /* antes 300px */
+    background:#1b263b;
+    border-radius:12px;      /* antes 10px */
+    padding:18px;            /* antes 12px */
+    text-align:center;
+  }
+  .btns{
+    margin-bottom:18px;      /* antes 12px */
+    display:flex;
+    justify-content:center;
+    gap:12px;                /* antes 10px */
+  }
+  .btn{
+    background:#415a77;
+    color:#ffff00;
+    padding:10px 18px;       /* antes 6px 12px */
+    border:none;
+    border-radius:8px;       /* antes 6px */
+    cursor:pointer;
+    font-size:15px;          /* antes 12px */
+    text-decoration:none;
+  }
+  .btn:hover{background:#5a7fb0}
+  .gallery{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); /* antes 1fr 1fr */
+    gap:15px;                /* antes 10px */
+  }
+  .gallery img{
+    width:100%;
+    height:140px;            /* antes 110px */
+    object-fit:cover;
+    border-radius:8px;       /* antes 6px */
+  }
+  /* -------- modal -------- */
+  .modal{
+    display:none;
+    position:fixed;
+    z-index:999;
+    left:0;
+    top:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,.7);
+  }
+  .modal-content{
+    background:#1b263b;
+    margin:10% auto;
+    padding:25px;            /* antes 20px */
+    border-radius:12px;      /* antes 10px */
+    width:90%;
+    max-width:600px;         /* antes 500px */
+    color:#ffff00;
+    font-size:15px;          /* antes 12px */
+    line-height:1.5;         /* antes 1.4 */
+  }
+  .close{
+    color:#ffff80;
+    float:right;
+    font-size:22px;          /* antes 18px */
+    font-weight:bold;
+    cursor:pointer;
+  }
+  .close:hover{color:#fff}
+  /* -------- pie -------- */
+  footer{
+    text-align:center;
+    padding:15px 10px;       /* antes 10px 5px */
+    font-size:13px;          /* antes 10px */
+    background:#09101a;
+    color:#ffff80;
+    line-height:1.5;         /* antes 1.4 */
+  }
+  @media(max-width:900px){   /* antes 700px */
+    .wrap{flex-direction:column}
+    .col-left{flex:1 1 auto}
+  }
+</style>
 </head>
 <body>
   <h1>⚽ NIQUEE FÚTBOL CLUB</h1>
