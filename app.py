@@ -1,19 +1,21 @@
 # ---------------  app.py (Flask + Admin + PDF)  ---------------
+import os, secrets, sqlite3
 from flask import Flask, render_template_string, request, redirect, url_for, send_from_directory, session
-import sqlite3, os
 from datetime import date
 from werkzeug.utils import secure_filename
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
-app.secret_key = "clave_secreta_niquee"
+# Clave fuerte desde variable de entorno (Render la puede injectar)
+app.secret_key = os.getenv("FLASK_SECRET") or secrets.token_hex(32)
 
 UPLOAD_IMG = "static/uploads"
 UPLOAD_DOCS = "static/uploads/docs"
 os.makedirs(UPLOAD_IMG, exist_ok=True)
 os.makedirs(UPLOAD_DOCS, exist_ok=True)
 
-ADMIN_PASSWORD = "admin123"  # ← la cambias aquí cuando quieras
-
+# Hash del password (generar una vez y guardar en Render)
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH") or generate_password_hash("admin123")
 # ---------- BD ----------
 def init_db():
     conn = sqlite3.connect("jugadores.db")
@@ -37,7 +39,7 @@ def init_db():
 # ---------- RUTAS ----------
 @app.route("/")
 def index():
-    init_db()
+   
     conn = sqlite3.connect("jugadores.db")
     cursor = conn.cursor()
     rows = cursor.execute("SELECT * FROM jugadores ORDER BY id DESC").fetchall()
@@ -47,7 +49,7 @@ def index():
 @app.route("/admin", methods=["GET", "POST"])
 def admin_login():
     if request.method == "POST":
-        if request.form["password"] == ADMIN_PASSWORD:
+       if check_password_hash(ADMIN_PASSWORD_HASH, request.form["password"]):
             session["admin"] = True
             return redirect(url_for("admin_panel"))
         else:
@@ -77,6 +79,9 @@ def guardar():
     if "imagen" in request.files:
         file = request.files["imagen"]
         if file.filename != "":
+        ext = file.filename.rsplit(".", 1)[1].lower()
+        if ext not in {"png", "jpg", "jpeg", "gif", "webp"} or file.content_length > 2 * 1024 * 1024:
+            return "Imagen no permitida o muy pesada", 400
             filename = secure_filename(file.filename)
             path = os.path.join(UPLOAD_IMG, filename)
             file.save(path)
@@ -94,6 +99,8 @@ def guardar():
 @app.route("/subir_pdf/<int:jugador_id>", methods=["POST"])
 def subir_pdf(jugador_id):
     file = request.files["pdf"]
+if not (file and file.filename.endswith(".pdf") and file.content_length <= 3 * 1024 * 1024):
+    return "Archivo no válido", 400
     if file and file.filename.endswith(".pdf"):
         conn = sqlite3.connect("jugadores.db")
         cursor = conn.cursor()
