@@ -3,7 +3,16 @@ from flask import Flask, render_template_string, request, redirect, url_for, sen
 import sqlite3, os
 from datetime import date
 from werkzeug.utils import secure_filename
+import atexit
 
+# 1º importar y descargar BD
+from db_sync import pull_db, push_db, close_repo
+repo, tmp_dir = pull_db()
+
+# 2º registrar cierre automático
+atexit.register(lambda: (push_db(repo, tmp_dir), close_repo(repo, tmp_dir)))
+
+# 3º ya puedes crear la app
 app = Flask(__name__)
 app.secret_key = "clave_secreta_niquee"
 
@@ -17,6 +26,8 @@ PDF_PASSWORD = "guthler"   # <-- cambia aquí tu clave
 
 # ---------- BD ----------
 def init_db():
+from db_sync import pull_db, push_db, close_repo
+repo, tmp_dir = pull_db()          # 1ª línea nueva
     conn = sqlite3.connect("jugadores.db")
     cursor = conn.cursor()
     cursor.execute("""
@@ -33,6 +44,7 @@ def init_db():
         )
     """)
     conn.commit()
+push_db(repo, tmp_dir)             # 2ª línea nueva
     conn.close()
 
 # ---------- RUTAS ----------
