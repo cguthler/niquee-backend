@@ -170,14 +170,17 @@ INDEX_HTML = """
     max-height:80vh;
     overflow-y:auto;
   }
-  .logo-titulo{margin-bottom:15px}
-  .logo-titulo img{
-    height:80px;             /* antes 60px */
-    border-radius:8px;       /* antes 6px */
+  .logo-titulo{
+  text-align:center;
+  margin-bottom:15px;
   }
-  .logo-titulo h2{
-    margin-top:10px;
-    font-size:1.2rem;        /* antes 1rem */
+.logo-titulo img{
+  height:80px;
+  border-radius:8px;
+  }
+.logo-titulo h2{
+  margin-top:8px;
+  font-size:1.2rem;
   }
   .player{
     display:flex;
@@ -305,10 +308,13 @@ INDEX_HTML = """
 
     <!--  COLUMNA DERECHA  -->
     <section class="col-right">
-      <div class="btns">
-        <a href="/admin" class="btn">Panel Admin</a>
-        <button class="btn" onclick="document.getElementById('infoModal').style.display='block'">+ Info</button>
-      </div>
+      
+      <!--  CENTRAMOS LOS 3 BOTONES  -->
+<div class="btns" style="display:flex; justify-content:center; gap:15px;">
+  <a href="/admin" class="btn">Panel Admin</a>
+  <button class="btn" onclick="document.getElementById('infoModal').style.display='block'">+ Info</button>
+  <button class="btn" onclick="document.getElementById('pdfModal').style.display='block'">Cargar PDF</button>
+</div>
       <h2>Fotos del Equipo</h2>
       <div class="gallery">
         <img src="{{ url_for('static', filename='uploads/niqueeblanco.jpg') }}" alt="Equipo 1">
