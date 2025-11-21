@@ -26,8 +26,8 @@ PDF_PASSWORD = "guthler"   # <-- cambia aquí tu clave
 
 # ---------- BD ----------
 def init_db():
-from db_sync import pull_db, push_db, close_repo
-repo, tmp_dir = pull_db()          # 1ª línea nueva
+    from db_sync import pull_db, push_db, close_repo
+    repo, tmp_dir = pull_db()          # 1ª línea nueva
     conn = sqlite3.connect("jugadores.db")
     cursor = conn.cursor()
     cursor.execute("""
@@ -44,7 +44,7 @@ repo, tmp_dir = pull_db()          # 1ª línea nueva
         )
     """)
     conn.commit()
-push_db(repo, tmp_dir)             # 2ª línea nueva
+    push_db(repo, tmp_dir)             # 2ª línea nueva
     conn.close()
 
 # ---------- RUTAS ----------
@@ -56,8 +56,8 @@ def index():
     rows = cursor.execute("SELECT * FROM jugadores ORDER BY id DESC").fetchall()
     conn.close()
     return render_template_string(INDEX_HTML,
-                              jugadores=rows,
-                              PDF_PASSWORD=PDF_PASSWORD)
+                                  jugadores=rows,
+                                  PDF_PASSWORD=PDF_PASSWORD)
 
 @app.route("/admin", methods=["GET", "POST"])
 def admin_login():
