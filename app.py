@@ -13,6 +13,7 @@ os.makedirs(UPLOAD_IMG, exist_ok=True)
 os.makedirs(UPLOAD_DOCS, exist_ok=True)
 
 ADMIN_PASSWORD = "jeremias123"
+PDF_PASSWORD = "guthler"   # <-- cambia aquí tu clave
 
 # ---------- BD ----------
 def init_db():
@@ -42,7 +43,9 @@ def index():
     cursor = conn.cursor()
     rows = cursor.execute("SELECT * FROM jugadores ORDER BY id DESC").fetchall()
     conn.close()
-    return render_template_string(INDEX_HTML, jugadores=rows)
+    return render_template_string(INDEX_HTML,
+                              jugadores=rows,
+                              PDF_PASSWORD=PDF_PASSWORD)
 
 @app.route("/admin", methods=["GET", "POST"])
 def admin_login():
@@ -344,7 +347,7 @@ INDEX_HTML = """
       <div class="btns" style="display:flex; justify-content:center; gap:15px;">
         <a href="/admin" class="btn">Panel Admin</a>
         <button class="btn" onclick="document.getElementById('infoModal').style.display='block'">+ Info</button>
-        <button class="btn" onclick="document.getElementById('pdfModal').style.display='block'">Cargar PDF</button>
+       <button class="btn" onclick="pedirClavePDF()">Cargar PDF</button>
       </div>
       <h2>Fotos del Equipo</h2>
       <div class="gallery">
@@ -375,6 +378,19 @@ INDEX_HTML = """
     cguthler@hotmail.com • <a href="https://www.facebook.com/share/1CWH1PEHMU/" target="_blank" style="color:#ffff80">fb.me/share/1CWH1PEHMU</a><br>
     Guayaquil – Ecuador
   </footer>
+
+<script>
+  const PDF_CLAVE_CORRECTA = "{{ PDF_PASSWORD }}";  // la pasamos desde Flask
+
+  function pedirClavePDF() {
+    const intro = prompt("Introduce la contraseña para cargar PDF:");
+    if (intro === PDF_CLAVE_CORRECTA) {
+      document.getElementById('pdfModal').style.display = 'block';
+    } else if (intro !== null) {   // null = Cancelar
+      alert("❌ Contraseña incorrecta");
+    }
+  }
+</script>
 </body>
 </html>
 """
