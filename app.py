@@ -145,13 +145,14 @@ INDEX_HTML = """
   <meta name="viewport" content="width=device-width,initial-scale=1">
  <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{
-    font-family:Segoe UI,system-ui,sans-serif;
-    background:#0d1b2a;
-    color:#ffff00;
-    font-size:16px;
-    line-height:1.5;
-  }
+body{
+  font-family:Segoe UI,system-ui,sans-serif;
+  background: url("{{ url_for('static', filename='uploads/fondo.jpg') }}") no-repeat center center fixed;
+  background-size: cover;
+  color:#ffff00;
+  font-size:16px;
+  line-height:1.5;
+}
   h1{
     text-align:center;
     padding:20px 0 12px;
