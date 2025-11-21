@@ -1,3 +1,5 @@
 flask==3.0.0
 gunicorn==21.2.0
 werkzeug
+GitPython==3.1.37
+PyGithub==1.59.1
