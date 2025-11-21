@@ -1,34 +1,53 @@
-# ---------------  app.py (Flask + Admin + PDF) ---------------
+# app.py — NIQUEE FÚTBOL CLUB (Flask) — Opción A (guardar DB en repo con db_sync)
 from flask import Flask, render_template_string, request, redirect, url_for, send_from_directory, session
 import sqlite3, os
 from datetime import date
 from werkzeug.utils import secure_filename
 import atexit
 
-# 1º importar y descargar BD
+# IMPORT de db_sync (asegúrate que db_sync está en el repo y funciona en Render)
+# db_sync must provide: pull_db() -> (repo, tmp_dir), push_db(repo,tmp_dir), close_repo(repo,tmp_dir)
 from db_sync import pull_db, push_db, close_repo
+
+# Pull inicial (clona y deja el repo/BD en el entorno)
 repo, tmp_dir = pull_db()
+print("db_sync: repo clonado en:", tmp_dir)
 
-# 2º registrar cierre automático
-atexit.register(lambda: (push_db(repo, tmp_dir), close_repo(repo, tmp_dir)))
+# Registro de cierre (fallback)
+def _final_sync():
+    try:
+        push_db(repo, tmp_dir)
+        print("db_sync: push final OK (atexit)")
+    except Exception as e:
+        print("db_sync: error en push final (atexit):", e)
+    try:
+        close_repo(repo, tmp_dir)
+    except Exception as e:
+        print("db_sync: error cerrando repo:", e)
 
-# 3º ya puedes crear la app
+atexit.register(_final_sync)
+
 app = Flask(__name__)
-app.secret_key = "clave_secreta_niquee"
+# Mejor usar variables de entorno en Render: FLASK_SECRET, ADMIN_PASSWORD, PDF_PASSWORD
+app.secret_key = os.environ.get("FLASK_SECRET", "clave_secreta_niquee")
 
 UPLOAD_IMG = "static/uploads"
 UPLOAD_DOCS = "static/uploads/docs"
 os.makedirs(UPLOAD_IMG, exist_ok=True)
 os.makedirs(UPLOAD_DOCS, exist_ok=True)
 
-ADMIN_PASSWORD = "jeremias123"
-PDF_PASSWORD = "guthler"   # <-- cambia aquí tu clave
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "jeremias123")
+PDF_PASSWORD = os.environ.get("PDF_PASSWORD", "guthler")   # mejor en vars de entorno
+
+DB_FILE = "jugadores.db"
 
 # ---------- BD ----------
 def init_db():
-    from db_sync import pull_db, push_db, close_repo
-    repo, tmp_dir = pull_db()          # 1ª línea nueva
-    conn = sqlite3.connect("jugadores.db")
+    """
+    Crea la tabla si no existe. Hacemos push tras crear la tabla para persistir estructura.
+    Nota: No llamamos a pull_db() aquí (ya se hizo al inicio).
+    """
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS jugadores (
@@ -44,14 +63,21 @@ def init_db():
         )
     """)
     conn.commit()
-    push_db(repo, tmp_dir)             # 2ª línea nueva
     conn.close()
+
+    # push para asegurar que la estructura se guarda en el repo
+    try:
+        push_db(repo, tmp_dir)
+        print("db_sync: push en init_db -> OK")
+    except Exception as e:
+        print("db_sync: fallo push en init_db:", e)
+
 
 # ---------- RUTAS ----------
 @app.route("/")
 def index():
     init_db()
-    conn = sqlite3.connect("jugadores.db")
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     rows = cursor.execute("SELECT * FROM jugadores ORDER BY id DESC").fetchall()
     conn.close()
@@ -62,7 +88,7 @@ def index():
 @app.route("/admin", methods=["GET", "POST"])
 def admin_login():
     if request.method == "POST":
-        if request.form["password"] == ADMIN_PASSWORD:
+        if request.form.get("password") == ADMIN_PASSWORD:
             session["admin"] = True
             return redirect(url_for("admin_panel"))
         else:
@@ -73,7 +99,7 @@ def admin_login():
 def admin_panel():
     if not session.get("admin"):
         return redirect(url_for("admin_login"))
-    conn = sqlite3.connect("jugadores.db")
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     rows = cursor.execute("SELECT * FROM jugadores ORDER BY id DESC").fetchall()
     conn.close()
@@ -83,20 +109,23 @@ def admin_panel():
 def guardar():
     if not session.get("admin"):
         return redirect(url_for("admin_login"))
-    nombre = request.form["nombre"]
-    anio = request.form["anio_nacimiento"]
-    posicion = request.form["posicion"]
-    goles = request.form["goles"]
-    asistencias = request.form["asistencias"]
+
+    nombre = request.form.get("nombre", "").strip()
+    anio = request.form.get("anio_nacimiento", "").strip() or "0"
+    posicion = request.form.get("posicion", "").strip()
+    goles = request.form.get("goles", "0").strip() or "0"
+    asistencias = request.form.get("asistencias", "0").strip() or "0"
+
     imagen = ""
     if "imagen" in request.files:
         file = request.files["imagen"]
-        if file.filename != "":
+        if file and file.filename != "":
             filename = secure_filename(file.filename)
             path = os.path.join(UPLOAD_IMG, filename)
             file.save(path)
             imagen = filename
-    conn = sqlite3.connect("jugadores.db")
+
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO jugadores (nombre, anio_nacimiento, posicion, goles, asistencias, imagen, fecha_ingreso, pdf) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -104,30 +133,51 @@ def guardar():
     )
     conn.commit()
     conn.close()
+
+    # push inmediato para persistir cambios
+    try:
+        push_db(repo, tmp_dir)
+        print("db_sync: push en guardar -> OK")
+    except Exception as e:
+        print("db_sync: fallo push en guardar:", e)
+
     return redirect(url_for("admin_panel"))
 
 @app.route("/subir_pdf/<int:jugador_id>", methods=["POST"])
 def subir_pdf(jugador_id):
+    if 'pdf' not in request.files:
+        return "Archivo no válido", 400
     file = request.files["pdf"]
-    if file and file.filename.endswith(".pdf"):
-        conn = sqlite3.connect("jugadores.db")
+    if file and file.filename.lower().endswith(".pdf"):
+        conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         row = cursor.execute("SELECT nombre FROM jugadores WHERE id = ?", (jugador_id,)).fetchone()
         if not row:
             conn.close()
             return "Jugador no encontrado", 404
-        nombre_jugador = row[0]
-        filename = f"{nombre_jugador}.pdf"
-        path = os.path.join(UPLOAD_DOCS, filename)
+        nombre_jugador = row[0] or f"jugador_{jugador_id}"
+        safe_name = secure_filename(f"{nombre_jugador}_{jugador_id}.pdf")
+        path = os.path.join(UPLOAD_DOCS, safe_name)
         file.save(path)
-        cursor.execute("UPDATE jugadores SET pdf = ? WHERE id = ?", (filename, jugador_id))
+        cursor.execute("UPDATE jugadores SET pdf = ? WHERE id = ?", (safe_name, jugador_id))
         conn.commit()
         conn.close()
+
+        # push inmediato
+        try:
+            push_db(repo, tmp_dir)
+            print("db_sync: push en subir_pdf -> OK")
+        except Exception as e:
+            print("db_sync: fallo push en subir_pdf:", e)
+
         return redirect(url_for("index"))
-    return "Archivo no válido", 400
+    return "Archivo no válido (debe ser .pdf)", 400
 
 @app.route("/uploads/<path:name>")
 def serve_img(name):
+    if not name:
+        # placeholder: si no tienes placeholder.png en static, añade una o cambia la ruta
+        return send_from_directory("static", "placeholder.png")
     return send_from_directory(UPLOAD_IMG, name)
 
 @app.route("/docs/<path:name>")
@@ -140,14 +190,38 @@ def serve_pdf(name):
 def borrar(jugador_id):
     if not session.get("admin"):
         return redirect(url_for("admin_login"))
-    conn = sqlite3.connect("jugadores.db")
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+
+    row = cursor.execute("SELECT imagen, pdf FROM jugadores WHERE id = ?", (jugador_id,)).fetchone()
+    if row:
+        imagen, pdf = row
+        if imagen:
+            try:
+                os.remove(os.path.join(UPLOAD_IMG, imagen))
+            except Exception:
+                pass
+        if pdf:
+            try:
+                os.remove(os.path.join(UPLOAD_DOCS, pdf))
+            except Exception:
+                pass
+
     cursor.execute("DELETE FROM jugadores WHERE id = ?", (jugador_id,))
     conn.commit()
     conn.close()
+
+    # push inmediato
+    try:
+        push_db(repo, tmp_dir)
+        print("db_sync: push en borrar -> OK")
+    except Exception as e:
+        print("db_sync: fallo push en borrar:", e)
+
     return redirect(url_for("admin_panel"))
 
-# ---------- HTML ----------
+
+# ---------- HTML (tus plantillas originales completas) ----------
 INDEX_HTML = """
 <!doctype html>
 <html lang="es">
@@ -432,11 +506,17 @@ ADMIN_PANEL_HTML = """
 {% for j in jugadores %}
   <div>
     <strong>{{ j[1] }}</strong> |
-    <a href="/docs/{{ j[8] }}">📄 Ver PDF</a> |
+    {% if j[8] %}
+      <a href="/docs/{{ j[8] }}">📄 Ver PDF</a> |
+    {% else %}
+      📄 (sin PDF) |
+    {% endif %}
     <a href="/borrar/{{ j[0] }}" onclick="return confirm('¿Borrar?')">🗑️ Borrar</a>
   </div>
 {% endfor %}
 """
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    print(f"Iniciando app Flask en 0.0.0.0:{port}")
+    app.run(host="0.0.0.0", port=port)
