@@ -7,10 +7,21 @@ import atexit
 
 # IMPORT de db_sync (asegúrate que db_sync está en el repo y funciona en Render)
 # db_sync must provide: pull_db() -> (repo, tmp_dir), push_db(repo,tmp_dir), close_repo(repo,tmp_dir)
-from db_sync import pull_db, push_db, close_repo
+# from db_sync import pull_db, push_db, close_repo
+
+import cloudinary
+from cloudinary.uploader import upload, destroy
+from cloudinary.utils import cloudinary_url
+
+cloudinary.config(
+    cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.environ.get("CLOUDINARY_API_KEY"),
+    api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
+    secure=True
+)
 
 # Pull inicial (clona y deja el repo/BD en el entorno)
-repo, tmp_dir = pull_db()
+# repo, tmp_dir = pull_db()
 print("db_sync: repo clonado en:", tmp_dir)
 
 # Registro de cierre (fallback)
@@ -25,7 +36,7 @@ def _final_sync():
     except Exception as e:
         print("db_sync: error cerrando repo:", e)
 
-atexit.register(_final_sync)
+# atexit.register(_final_sync)
 
 app = Flask(__name__)
 # Mejor usar variables de entorno en Render: FLASK_SECRET, ADMIN_PASSWORD, PDF_PASSWORD
@@ -120,11 +131,8 @@ def guardar():
     if "imagen" in request.files:
         file = request.files["imagen"]
         if file and file.filename != "":
-            filename = secure_filename(file.filename)
-            path = os.path.join(UPLOAD_IMG, filename)
-            file.save(path)
-            imagen = filename
-
+            result = upload(file, folder="niquee/jugadores")
+            imagen = result["secure_url"]
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute(
@@ -164,11 +172,11 @@ def subir_pdf(jugador_id):
         conn.close()
 
         # push inmediato
-        try:
-            push_db(repo, tmp_dir)
-            print("db_sync: push en subir_pdf -> OK")
-        except Exception as e:
-            print("db_sync: fallo push en subir_pdf:", e)
+        #try:
+        #    push_db(repo, tmp_dir)
+             print("db_sync: push en subir_pdf -> OK")
+        #except Exception as e:
+        #    print("db_sync: fallo push en subir_pdf:", e)
 
         return redirect(url_for("index"))
     return "Archivo no válido (debe ser .pdf)", 400
@@ -196,11 +204,10 @@ def borrar(jugador_id):
     row = cursor.execute("SELECT imagen, pdf FROM jugadores WHERE id = ?", (jugador_id,)).fetchone()
     if row:
         imagen, pdf = row
-        if imagen:
-            try:
-                os.remove(os.path.join(UPLOAD_IMG, imagen))
-            except Exception:
-                pass
+        if imagen and imagen.startswith("http"):
+    # extrae el public_id de la URL
+    public_id = imagen.split("/")[-1].split(".")[0]
+    destroy(f"niquee/jugadores/{public_id}")
         if pdf:
             try:
                 os.remove(os.path.join(UPLOAD_DOCS, pdf))
