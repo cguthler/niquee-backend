@@ -172,10 +172,10 @@ def subir_pdf(jugador_id):
         conn.close()
 
         # push inmediato
-        #try:
+        # try:
         #    push_db(repo, tmp_dir)
-             print("db_sync: push en subir_pdf -> OK")
-        #except Exception as e:
+        #    print("db_sync: push en subir_pdf -> OK")
+        # except Exception as e:
         #    print("db_sync: fallo push en subir_pdf:", e)
 
         return redirect(url_for("index"))
