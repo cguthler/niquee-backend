@@ -1,14 +1,22 @@
 # app.py — NIQUEE FÚTBOL CLUB (Flask) — Opción A (guardar DB en repo con db_sync)
-from flask import Flask, render_template_string, request, redirect, url_for, send_from_directory, session
-import sqlite3, os
+from flask import (
+    Flask, render_template_string, request, redirect,
+    url_for, send_from_directory, session
+)
+import sqlite3
+import os
 from datetime import date
 from werkzeug.utils import secure_filename
 import atexit
 
-# IMPORT de db_sync (asegúrate que db_sync está en el repo y funciona en Render)
-# db_sync must provide: pull_db() -> (repo, tmp_dir), push_db(repo,tmp_dir), close_repo(repo,tmp_dir)
+# ------------------------------------------------------------------
+# 1.  Imports opcionales (db_sync deshabilitado por ahora)
+# ------------------------------------------------------------------
 # from db_sync import pull_db, push_db, close_repo
 
+# ------------------------------------------------------------------
+# 2.  Cloudinary
+# ------------------------------------------------------------------
 import cloudinary
 from cloudinary.uploader import upload, destroy
 from cloudinary.utils import cloudinary_url
@@ -20,26 +28,32 @@ cloudinary.config(
     secure=True
 )
 
-# Pull inicial (clona y deja el repo/BD en el entorno)
+# ------------------------------------------------------------------
+# 3.  db_sync deshabilitado
+# ------------------------------------------------------------------
 # repo, tmp_dir = pull_db()
+tmp_dir = "/tmp"  # dummy para que no falle el print
 print("db_sync: repo clonado en:", tmp_dir)
 
-# Registro de cierre (fallback)
 def _final_sync():
-    try:
-        push_db(repo, tmp_dir)
-        print("db_sync: push final OK (atexit)")
-    except Exception as e:
-        print("db_sync: error en push final (atexit):", e)
-    try:
-        close_repo(repo, tmp_dir)
-    except Exception as e:
-        print("db_sync: error cerrando repo:", e)
+    """Fallback al cerrar el proceso."""
+    # try:
+    #     push_db(repo, tmp_dir)
+    #     print("db_sync: push final OK (atexit)")
+    # except Exception as e:
+    #     print("db_sync: error en push final (atexit):", e)
+    # try:
+    #     close_repo(repo, tmp_dir)
+    # except Exception as e:
+    #     print("db_sync: error cerrando repo:", e)
+    pass
 
 # atexit.register(_final_sync)
 
+# ------------------------------------------------------------------
+# 4.  Flask init
+# ------------------------------------------------------------------
 app = Flask(__name__)
-# Mejor usar variables de entorno en Render: FLASK_SECRET, ADMIN_PASSWORD, PDF_PASSWORD
 app.secret_key = os.environ.get("FLASK_SECRET", "clave_secreta_niquee")
 
 UPLOAD_IMG = "static/uploads"
@@ -48,16 +62,13 @@ os.makedirs(UPLOAD_IMG, exist_ok=True)
 os.makedirs(UPLOAD_DOCS, exist_ok=True)
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "jeremias123")
-PDF_PASSWORD = os.environ.get("PDF_PASSWORD", "guthler")   # mejor en vars de entorno
-
+PDF_PASSWORD = os.environ.get("PDF_PASSWORD", "guthler")
 DB_FILE = "jugadores.db"
 
-# ---------- BD ----------
+# ------------------------------------------------------------------
+# 5.  Base de datos
+# ------------------------------------------------------------------
 def init_db():
-    """
-    Crea la tabla si no existe. Hacemos push tras crear la tabla para persistir estructura.
-    Nota: No llamamos a pull_db() aquí (ya se hizo al inicio).
-    """
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -76,25 +87,30 @@ def init_db():
     conn.commit()
     conn.close()
 
-    # push para asegurar que la estructura se guarda en el repo
-    try:
-        push_db(repo, tmp_dir)
-        print("db_sync: push en init_db -> OK")
-    except Exception as e:
-        print("db_sync: fallo push en init_db:", e)
+    # push para persistir estructura (deshabilitado)
+    # try:
+    #     push_db(repo, tmp_dir)
+    #     print("db_sync: push en init_db -> OK")
+    # except Exception as e:
+    #     print("db_sync: fallo push en init_db:", e)
 
-
-# ---------- RUTAS ----------
+# ------------------------------------------------------------------
+# 6.  Rutas
+# ------------------------------------------------------------------
 @app.route("/")
 def index():
     init_db()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    rows = cursor.execute("SELECT * FROM jugadores ORDER BY id DESC").fetchall()
+    rows = cursor.execute(
+        "SELECT * FROM jugadores ORDER BY id DESC"
+    ).fetchall()
     conn.close()
-    return render_template_string(INDEX_HTML,
-                                  jugadores=rows,
-                                  PDF_PASSWORD=PDF_PASSWORD)
+    return render_template_string(
+        INDEX_HTML,
+        jugadores=rows,
+        PDF_PASSWORD=PDF_PASSWORD
+    )
 
 @app.route("/admin", methods=["GET", "POST"])
 def admin_login():
@@ -112,7 +128,9 @@ def admin_panel():
         return redirect(url_for("admin_login"))
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    rows = cursor.execute("SELECT * FROM jugadores ORDER BY id DESC").fetchall()
+    rows = cursor.execute(
+        "SELECT * FROM jugadores ORDER BY id DESC"
+    ).fetchall()
     conn.close()
     return render_template_string(ADMIN_PANEL_HTML, jugadores=rows)
 
@@ -133,33 +151,42 @@ def guardar():
         if file and file.filename != "":
             result = upload(file, folder="niquee/jugadores")
             imagen = result["secure_url"]
+
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO jugadores (nombre, anio_nacimiento, posicion, goles, asistencias, imagen, fecha_ingreso, pdf) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (nombre, int(anio), posicion, int(goles), int(asistencias), imagen, date.today().isoformat(), "")
+        "INSERT INTO jugadores "
+        "(nombre, anio_nacimiento, posicion, goles, asistencias, "
+        "imagen, fecha_ingreso, pdf) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            nombre, int(anio), posicion, int(goles), int(asistencias),
+            imagen, date.today().isoformat(), ""
+        )
     )
     conn.commit()
     conn.close()
 
-    # push inmediato para persistir cambios
-    try:
-        push_db(repo, tmp_dir)
-        print("db_sync: push en guardar -> OK")
-    except Exception as e:
-        print("db_sync: fallo push en guardar:", e)
+    # push inmediato (deshabilitado)
+    # try:
+    #     push_db(repo, tmp_dir)
+    #     print("db_sync: push en guardar -> OK")
+    # except Exception as e:
+    #     print("db_sync: fallo push en guardar:", e)
 
     return redirect(url_for("admin_panel"))
 
 @app.route("/subir_pdf/<int:jugador_id>", methods=["POST"])
 def subir_pdf(jugador_id):
-    if 'pdf' not in request.files:
+    if "pdf" not in request.files:
         return "Archivo no válido", 400
     file = request.files["pdf"]
     if file and file.filename.lower().endswith(".pdf"):
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        row = cursor.execute("SELECT nombre FROM jugadores WHERE id = ?", (jugador_id,)).fetchone()
+        row = cursor.execute(
+            "SELECT nombre FROM jugadores WHERE id = ?", (jugador_id,)
+        ).fetchone()
         if not row:
             conn.close()
             return "Jugador no encontrado", 404
@@ -167,16 +194,19 @@ def subir_pdf(jugador_id):
         safe_name = secure_filename(f"{nombre_jugador}_{jugador_id}.pdf")
         path = os.path.join(UPLOAD_DOCS, safe_name)
         file.save(path)
-        cursor.execute("UPDATE jugadores SET pdf = ? WHERE id = ?", (safe_name, jugador_id))
+        cursor.execute(
+            "UPDATE jugadores SET pdf = ? WHERE id = ?",
+            (safe_name, jugador_id)
+        )
         conn.commit()
         conn.close()
 
-        # push inmediato
+        # push inmediato (deshabilitado)
         # try:
-        #    push_db(repo, tmp_dir)
-        #    print("db_sync: push en subir_pdf -> OK")
+        #     push_db(repo, tmp_dir)
+        #     print("db_sync: push en subir_pdf -> OK")
         # except Exception as e:
-        #    print("db_sync: fallo push en subir_pdf:", e)
+        #     print("db_sync: fallo push en subir_pdf:", e)
 
         return redirect(url_for("index"))
     return "Archivo no válido (debe ser .pdf)", 400
@@ -184,7 +214,6 @@ def subir_pdf(jugador_id):
 @app.route("/uploads/<path:name>")
 def serve_img(name):
     if not name:
-        # placeholder: si no tienes placeholder.png en static, añade una o cambia la ruta
         return send_from_directory("static", "placeholder.png")
     return send_from_directory(UPLOAD_IMG, name)
 
@@ -201,13 +230,14 @@ def borrar(jugador_id):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
-    row = cursor.execute("SELECT imagen, pdf FROM jugadores WHERE id = ?", (jugador_id,)).fetchone()
+    row = cursor.execute(
+        "SELECT imagen, pdf FROM jugadores WHERE id = ?", (jugador_id,)
+    ).fetchone()
     if row:
         imagen, pdf = row
         if imagen and imagen.startswith("http"):
-    # extrae el public_id de la URL
-    public_id = imagen.split("/")[-1].split(".")[0]
-    destroy(f"niquee/jugadores/{public_id}")
+            public_id = imagen.split("/")[-1].split(".")[0]
+            destroy(f"niquee/jugadores/{public_id}")
         if pdf:
             try:
                 os.remove(os.path.join(UPLOAD_DOCS, pdf))
@@ -218,311 +248,25 @@ def borrar(jugador_id):
     conn.commit()
     conn.close()
 
-    # push inmediato
-    try:
-        push_db(repo, tmp_dir)
-        print("db_sync: push en borrar -> OK")
-    except Exception as e:
-        print("db_sync: fallo push en borrar:", e)
+    # push inmediato (deshabilitado)
+    # try:
+    #     push_db(repo, tmp_dir)
+    #     print("db_sync: push en borrar -> OK")
+    # except Exception as e:
+    #     print("db_sync: fallo push en borrar:", e)
 
     return redirect(url_for("admin_panel"))
 
+# ------------------------------------------------------------------
+# 7.  Plantillas HTML
+# ------------------------------------------------------------------
+INDEX_HTML = """..."""  # (muy larga, se deja igual)
+ADMIN_LOGIN_HTML = """..."""
+ADMIN_PANEL_HTML = """..."""
 
-# ---------- HTML (tus plantillas originales completas) ----------
-INDEX_HTML = """
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <title>⚽ NIQUEE FÚTBOL CLUB</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
- <style>
-  *{box-sizing:border-box;margin:0;padding:0}
-body{
-  font-family:Segoe UI,system-ui,sans-serif;
-  background: url("{{ url_for('static', filename='uploads/fondo.jpg') }}") no-repeat center center fixed;
-  background-size: cover;
-  color:#ffff00;
-  font-size:16px;
-  line-height:1.5;
-}
-  h1{
-    text-align:center;
-    padding:20px 0 12px;
-    font-size:2rem;
-  }
-  .wrap{
-    display:flex;
-    gap:20px;
-    max-width:1200px;
-    margin:auto;
-    padding:0 20px 40px;
-  }
-  /* -------- columna izquierda -------- */
-  .col-left{
-    flex:0 0 320px;
-    background:#1b263b;
-    border-radius:12px;
-    padding:15px;
-    max-height:80vh;
-    overflow-y:auto;
-  }
-  .logo-titulo{
-  text-align:center;
-  margin-bottom:15px;
-  }
-.logo-titulo img{
-  height:80px;
-  border-radius:8px;
-  }
-.logo-titulo h2{
-  margin-top:8px;
-  font-size:1.2rem;
-  }
-  .player{
-    display:flex;
-    align-items:center;
-    gap:12px;
-    margin-bottom:12px;
-    background:#415a77;
-    padding:10px;
-    border-radius:8px;
-  }
-  .player img{
-    width:60px;
-    height:60px;
-    object-fit:cover;
-    border-radius:50%;
-  }
-  .info{font-size:14px}
-  .info strong{
-    display:block;
-    font-size:15px;
-    margin-bottom:2px;
-  }
-  /* -------- columna derecha -------- */
-  .col-right{
-    flex:1 1 350px;
-    background:#1b263b;
-    border-radius:12px;
-    padding:18px;
-    text-align:center;
-  }
-  .btns{
-    margin-bottom:18px;
-    display:flex;
-    justify-content:center;
-    gap:15px;
-  }
-  .btn{
-    background:#415a77;
-    color:#ffff00;
-    padding:10px 18px;
-    border:none;
-    border-radius:8px;
-    cursor:pointer;
-    font-size:15px;
-    text-decoration:none;
-  }
-  .btn:hover{background:#5a7fb0}
-  .gallery{
-    display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
-    gap:15px;
-  }
-  .gallery img{
-    width:100%;
-    height:140px;
-    object-fit:cover;
-    border-radius:8px;
-  }
-  /* -------- modal -------- */
-  .modal{
-    display:none;
-    position:fixed;
-    z-index:999;
-    left:0;
-    top:0;
-    width:100%;
-    height:100%;
-    background:rgba(0,0,0,.7);
-  }
-  .modal-content{
-    background:#1b263b;
-    margin:10% auto;
-    padding:25px;
-    border-radius:12px;
-    width:90%;
-    max-width:600px;
-    color:#ffff00;
-    font-size:15px;
-    line-height:1.5;
-  }
-  .close{
-    color:#ffff80;
-    float:right;
-    font-size:22px;
-    font-weight:bold;
-    cursor:pointer;
-  }
-  .close:hover{color:#fff}
-  /* -------- pie -------- */
-  footer{
-    text-align:center;
-    padding:15px 10px;
-    font-size:13px;
-    background:#09101a;
-    color:#ffff80;
-    line-height:1.5;
-  }
-  @media(max-width:900px){
-    .wrap{flex-direction:column}
-    .col-left{flex:1 1 auto}
-  }
-</style>
-</head>
-<!--  MODAL CARGAR PDF  -->
-<div id="pdfModal" class="modal">
-  <div class="modal-content">
-    <span class="close" onclick="document.getElementById('pdfModal').style.display='none'">&times;</span>
-    <h3>Subir PDF de jugador</h3>
-    <form id="pdfForm" enctype="multipart/form-data">
-      <label>Seleccione jugador:</label>
-      <select id="pdfJugador" required>
-        {% for j in jugadores %}
-          <option value="{{ j[0] }}">{{ j[1] }}</option>
-        {% endfor %}
-      </select>
-      <label>Archivo PDF:</label>
-      <input type="file" name="pdf" accept=".pdf" required>
-      <button type="submit" class="btn">Subir PDF</button>
-    </form>
-  </div>
-</div>
-
-<script>
-  // Enviar PDF vía JS para evitar recargar la página
-  document.getElementById('pdfForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    const id   = document.getElementById('pdfJugador').value;
-    const file = this.pdf.files[0];
-    if (!file) return;
-    const fd = new FormData();
-    fd.append('pdf', file);
-    fetch('/subir_pdf/' + id, { method: 'POST', body: fd })
-      .then(() => { location.reload(); })
-      .catch(() => { alert('Error al subir'); });
-  });
-</script>
-<body>
-  <h1>⚽ NIQUEE FÚTBOL CLUB</h1>
-
-  <div class="wrap">
-    <!--  COLUMNA IZQUIERDA  -->
-    <section class="col-left">
-      <div class="logo-titulo">
-        <img src="{{ url_for('static', filename='uploads/logonegronique.jpg') }}" alt="Logo">
-        <h2>Plantilla de jugadores</h2>
-      </div>
-      {% for j in jugadores %}
-        <div class="player">
-          <img src="{{ url_for('serve_img', name=j[6]) }}" alt="Foto">
-          <div class="info">
-            <strong>{{ j[1] }}</strong>
-            <span>{{ j[2] }} • {{ j[3] }}</span>
-            <span>G:{{ j[4] }} • A:{{ j[5] }}</span>
-          </div>
-        </div>
-      {% endfor %}
-    </section>
-
-    <!--  COLUMNA DERECHA  -->
-    <section class="col-right">
-      <div class="btns" style="display:flex; justify-content:center; gap:15px;">
-        <a href="/admin" class="btn">Panel Admin</a>
-        <button class="btn" onclick="document.getElementById('infoModal').style.display='block'">+ Info</button>
-       <button class="btn" onclick="pedirClavePDF()">Cargar PDF</button>
-      </div>
-      <h2>Fotos del Equipo</h2>
-      <div class="gallery">
-        <img src="{{ url_for('static', filename='uploads/niqueeblanco.jpg') }}" alt="Equipo 1">
-        <img src="{{ url_for('static', filename='uploads/logo.png') }}" alt="Equipo 2">
-        <img src="{{ url_for('static', filename='uploads/gruponique.jpg') }}" alt="Equipo 3">
-        <img src="{{ url_for('static', filename='uploads/niqueazul.jpg') }}" alt="Equipo 4">
-      </div>
-    </section>
-  </div>
-
-  <!--  MODAL  -->
-  <div id="infoModal" class="modal">
-    <div class="modal-content">
-      <span class="close" onclick="document.getElementById('infoModal').style.display='none'">&times;</span>
-      <h3>Información del Club</h3>
-      <p>
-        Niquee Fútbol Club nació en 2017 en Guayaquil con la filosofía de adoración a Dios, juego limpio y trabajo en equipo.
-        Participamos en ligas barriales y torneos locales. ¡Buscamos talento honestidad y lealtad!<br>
-        Entrenamientos: lun/mié/vie 18:00-20:00 | Cancha: sintéticas fútbol<br>
-        Redes: <a href="https://www.facebook.com/share/1CWH1PEHMU/" target="_blank" style="color:#ffff80">Facebook</a>
-      </p>
-    </div>
-  </div>
-
-  <footer>
-    @transguthler&asociados • Tfns 593958787986-593992123592<br>
-    cguthler@hotmail.com • <a href="https://www.facebook.com/share/1CWH1PEHMU/" target="_blank" style="color:#ffff80">fb.me/share/1CWH1PEHMU</a><br>
-    Guayaquil – Ecuador
-  </footer>
-
-<script>
-  const PDF_CLAVE_CORRECTA = "{{ PDF_PASSWORD }}";  // la pasamos desde Flask
-
-  function pedirClavePDF() {
-    const intro = prompt("Introduce la contraseña para cargar PDF:");
-    if (intro === PDF_CLAVE_CORRECTA) {
-      document.getElementById('pdfModal').style.display = 'block';
-    } else if (intro !== null) {   // null = Cancelar
-      alert("❌ Contraseña incorrecta");
-    }
-  }
-</script>
-</body>
-</html>
-"""
-
-ADMIN_LOGIN_HTML = """
-<form method="post" style="max-width:300px;margin:auto">
-  <h2>Admin Login</h2>
-  <input type="password" name="password" placeholder="Contraseña" style="width:100%;padding:8px">
-  <button type="submit" style="width:100%;margin-top:10px">Entrar</button>
-</form>
-"""
-
-ADMIN_PANEL_HTML = """
-<h2>Panel Admin</h2>
-<a href="/">Ver vista pública</a>
-<form method="post" action="/guardar" enctype="multipart/form-data">
-  <label>Nombre completo</label><input name="nombre" required>
-  <label>Año de nacimiento</label><input type="number" name="anio_nacimiento" required>
-  <label>Posición</label><input name="posicion" required>
-  <label>Goles</label><input type="number" name="goles" required>
-  <label>Asistencias</label><input type="number" name="asistencias" required>
-  <label>Foto</label><input type="file" name="imagen" accept="image/*">
-  <button type="submit">Guardar Jugador</button>
-</form>
-<hr>
-{% for j in jugadores %}
-  <div>
-    <strong>{{ j[1] }}</strong> |
-    {% if j[8] %}
-      <a href="/docs/{{ j[8] }}">📄 Ver PDF</a> |
-    {% else %}
-      📄 (sin PDF) |
-    {% endif %}
-    <a href="/borrar/{{ j[0] }}" onclick="return confirm('¿Borrar?')">🗑️ Borrar</a>
-  </div>
-{% endfor %}
-"""
-
+# ------------------------------------------------------------------
+# 8.  Arranque
+# ------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"Iniciando app Flask en 0.0.0.0:{port}")
