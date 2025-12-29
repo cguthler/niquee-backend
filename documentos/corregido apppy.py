@@ -1,0 +1,1110 @@
+# ---------------  app.py (Flask + Admin + PDF) ---------------
+from flask import (
+    Flask, render_template_string, request, redirect, url_for,
+    send_from_directory, session, jsonify
+)
+import sqlite3, os
+ALLOWED_IMG = {'png', 'jpg', 'jpeg', 'gif'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMG
+from datetime import date
+from werkzeug.utils import secure_filename
+import psycopg2
+from psycopg2 import sql
+
+# ---------- CONFIG GRATIS EN LA NUBE ----------
+import os, psycopg2, cloudinary
+from cloudinary.uploader import upload as cld_upload
+from dotenv import load_dotenv
+from datetime import datetime
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL")
+RENDER = os.getenv("RENDER") == "true"
+if RENDER:
+    cloudinary.config(
+        cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+        api_key=os.getenv("CLOUDINARY_API_KEY"),
+        api_secret=os.getenv("CLOUDINARY_API_SECRET")
+    )
+
+# ---------- ÚNICA INSTANCIA DE FLASK ----------
+app = Flask(__name__)
+app.secret_key = "clave_secreta_niquee"
+
+# ---------- API JSON (PostgreSQL) ----------
+@app.route('/api/registro_rapido', methods=['POST'])
+def api_registro_rapido():
+    from datetime import date
+    data = request.get_json(force=True)
+    nombre = data.get('nombre')
+    cedula = data.get('cedula')
+    anio   = data.get('anio')
+
+    if not all([nombre, cedula, anio]):
+        return jsonify({"error": "Faltan campos"}), 400
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO jugadores (nombre, cedula, anio_nacimiento, posicion, goles, asistencias, fecha_ingreso) "
+            "VALUES (%s, %s, %s, 'POR', 0, 0, %s) RETURNING id",
+            (nombre, cedula, anio, date.today().isoformat())
+        )
+        nuevo_id = cur.fetchone()[0]
+        conn.commit()
+        return jsonify({"id": nuevo_id, "nombre": nombre}), 201
+    except psycopg2.IntegrityError:
+        conn.rollback()
+        return jsonify({"error": "Cédula ya registrada"}), 409
+    finally:
+        conn.close()
+
+# ---------- CONFIG DE CARPETAS ----------
+UPLOAD_IMG = os.path.join(os.getcwd(), "static", "uploads")
+UPLOAD_DOCS = os.path.join(os.getcwd(), "static", "uploads", "docs")
+os.makedirs(UPLOAD_IMG, exist_ok=True)
+os.makedirs(UPLOAD_DOCS, exist_ok=True)
+
+ADMIN_PASSWORD = "jeremias123"
+PDF_PASSWORD = "niquee123"
+FORM_PASSWORD = "guthler123"
+
+# … resto de tus rutas …
+
+# ---------- BD ----------
+def init_db():
+    conn = psycopg2.connect(DATABASE_URL)
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS jugadores (
+                id SERIAL PRIMARY KEY,
+                nombre TEXT,
+                cedula TEXT UNIQUE,
+                anio_nacimiento INTEGER,
+                posicion TEXT,
+                goles INTEGER,
+                asistencias INTEGER,
+                imagen TEXT,
+                fecha_ingreso TEXT,
+                pdf_url TEXT
+            )
+        """)
+        cur.execute(""" 
+            CREATE TABLE IF NOT EXISTS inscripciones (
+                id SERIAL PRIMARY KEY,
+                jugador_id INTEGER REFERENCES jugadores(id),
+                cedula TEXT,
+                anio_nacimiento INTEGER,
+                torneo TEXT,
+                estado TEXT DEFAULT 'PENDIENTE',
+                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+      
+        # ✅ Columna nueva para URL de Cloudinary
+        cur.execute("""
+            ALTER TABLE jugadores
+            ADD COLUMN IF NOT EXISTS pdf_url TEXT;
+        """)
+        # ✅ Tabla de aprobaciones
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS lecciones_aprobadas (
+                id SERIAL PRIMARY KEY,
+                jugador_id INTEGER REFERENCES jugadores(id) ON DELETE CASCADE,
+                leccion_numero INTEGER CHECK (leccion_numero BETWEEN 1 AND 10),
+                nota INTEGER CHECK (nota BETWEEN 0 AND 10),
+                fecha_aprobado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (jugador_id, leccion_numero)
+            );
+        """)
+    # <-- aquí termina el WITH
+    conn.commit()
+    conn.close()      
+
+@app.route("/admin/panel")
+def admin_panel():
+    if not session.get("admin"):
+        return redirect(url_for("admin_login"))
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, nombre, anio_nacimiento, posicion, goles, asistencias, imagen, pdf_url FROM jugadores ORDER BY id DESC"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return render_template_string(ADMIN_PANEL_HTML, jugadores=rows)
+@app.route("/admin", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        if request.form["password"] == ADMIN_PASSWORD:
+            session["admin"] = True
+            return redirect(url_for("admin_panel"))
+        else:
+            return "❌ Contraseña incorrecta"
+    return render_template_string(ADMIN_LOGIN_HTML)
+    
+# ---------- GUARDAR APROBACIÓN (PostgreSQL) ----------
+@app.route("/guardar_aprobacion_pg", methods=["POST"])
+def guardar_aprobacion_pg():
+    data = request.get_json()
+    jugador_id = data.get("jugador_id")
+    leccion_numero = data.get("leccion_numero")
+    nota = data.get("nota")
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO lecciones_aprobadas (jugador_id, leccion_numero, nota)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (jugador_id, leccion_numero)
+            DO UPDATE SET nota = EXCLUDED.nota,
+                          fecha_aprobado = NOW()
+            """,
+            (jugador_id, leccion_numero, nota)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return {"status": "error", "msg": str(e)}, 500
+    finally:
+        conn.close()
+
+    return {"status": "ok"}, 200
+@app.route("/subir_pdf/<int:jugador_id>", methods=["POST"])
+def subir_pdf(jugador_id):
+    # 1. sólo admin puede subir
+    if not session.get("admin"):
+        return "❌ Acceso denegado", 403
+
+    file = request.files.get("pdf")
+    if not file or file.filename == "":
+        return "Archivo no válido", 400
+    if not file.filename.lower().endswith(".pdf"):
+        return "Solo se permite PDF", 400
+
+    # 2. tamaño máximo 10 MB
+    if request.content_length and request.content_length > 10 * 1024 * 1024:
+        return "PDF demasiado grande (máx 10 MB)", 413
+
+    # 3. subida a Cloudinary
+    resultado = cld_upload(
+        file,
+        resource_type='raw',
+        folder=f"jugadores/{jugador_id}",
+        public_id=f"doc-{int(datetime.now().timestamp())}"
+    )
+    pdf_url = resultado['secure_url']
+
+    # 4. guardar URL en PostgreSQL
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE jugadores SET pdf_url = %s WHERE id = %s",
+        (pdf_url, jugador_id)
+    )
+    conn.commit()
+    conn.close()
+
+    # 5. mismo redireccionamiento original
+    return redirect(url_for("index"))
+   
+# ---------- API: lista de jugadores para autocompletar ----------
+@app.route("/api/jugadores")
+def api_jugadores():
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nombre, cedula FROM jugadores ORDER BY nombre")
+    rows = cursor.fetchall()
+    conn.close()
+    return {"jugadores": [{"id": r[0], "nombre": r[1], "cedula": r[2]} for r in rows]}
+
+# ---------- API: guardar inscripción ----------
+@app.route("/api/inscripciones", methods=["POST"])
+def api_inscripciones():
+    data = request.get_json()
+    jugador_id = data.get("jugador_id")
+    cedula     = data.get("cedula")
+    anio       = data.get("anio")
+    torneo     = data.get("torneo")
+    if not all([jugador_id, cedula, anio, torneo]):
+        return {"message": "Faltan datos"}, 400
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO inscripciones (jugador_id, cedula, anio_nacimiento, torneo, estado) VALUES (%s, %s, %s, %s, 'PENDIENTE')",
+        (jugador_id, cedula, anio, torneo)
+    )
+    conn.commit()
+    conn.close()
+    return {"message": "Inscripción registrada. realiza el pago para confirmar participación."}
+@app.route("/uploads/<path:name>")
+def serve_img(name):
+    if RENDER:
+        return redirect(name)
+    else:
+        return send_from_directory(UPLOAD_IMG, name)
+
+@app.route('/docs/<name>')
+def serve_pdf(name):
+    if not session.get("admin"):
+        return "❌ Acceso denegado", 403
+
+    safe_name = secure_filename(name)          # ← elimina ../, etc.
+    if RENDER:
+        return redirect(name)
+    return send_from_directory(UPLOAD_DOCS, safe_name)
+@app.route("/borrar/<int:jugador_id>")
+def borrar(jugador_id):
+    if not session.get("admin"):
+        return redirect(url_for("admin_login"))
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM jugadores WHERE id = %s", (jugador_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("admin_panel"))
+
+# ---------- HTML ----------
+INDEX_HTML = """
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>&#9917; NIQU&#201;E FUTBOL CLUB</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{
+      font-family:Segoe UI,system-ui,sans-serif;
+      background:url("{{ url_for('static', filename='uploads/fondo.jpg') }}") no-repeat center center fixed;
+      background-size:cover;
+      color:#ffff00;
+      font-size:16px;
+      line-height:1.5;
+    }
+    h1 {
+      text-align:center;
+      padding:20px 0 12px;
+      font-size:2rem;
+      color:#00ff00;
+    } 
+    .ventana{
+      background:#1b263b;
+      border-radius:12px;
+      padding:20px;
+      margin:20px auto;
+      max-width:1000px;
+      color:#ffff00;
+    }
+    .ventana h2{
+      text-align:center;
+      margin-bottom:15px;
+    }
+    .galeria{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:15px;
+    }
+    .galeria img{
+      width:100%;
+      height:140px;
+      object-fit:cover;
+      border-radius:8px;
+    }
+    .botones{
+      display:flex;
+      justify-content:center;
+      gap:15px;
+      margin-bottom:10px;
+    }
+    .btn{
+      background:#415a77;
+      color:#ffff00;
+      padding:10px 18px;
+      border:none;
+      border-radius:8px;
+      cursor:pointer;
+      font-size:15px;
+      text-decoration:none;
+    }
+    .btn:hover{background:#5a7fb0}
+    .jugador{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      margin-bottom:12px;
+      background:#415a77;
+      padding:10px;
+      border-radius:8px;
+    }
+    .jugador img{
+      width:60px;
+      height:60px;
+      object-fit:cover;
+      border-radius:50%;
+    }
+    .info{font-size:14px}
+    .info strong{display:block;margin-bottom:4px}
+    footer{
+      text-align:center;
+      padding:15px 10px;
+      font-size:13px;
+      background:#09101a;
+      color:#ffff80;
+    }
+    @media(max-width:900px){
+      .galeria{grid-template-columns:repeat(2,1fr)}
+    }
+    .modulo-lecciones{
+  background: #f5f5f5; /* fondo claro */
+  color: #1b263b;      /* texto oscuro que resalta */
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.25);
+}
+/* Botón "Leído → Comenzar test" siempre visible */
+.btn-leer {
+  position: sticky;
+  bottom: 20px;
+  margin: 20px auto;
+  display: block;
+  width: fit-content;
+  z-index: 10;          /* por si hay otros elementos encima */
+}
+/* === MODAL LECCIÓN: ANCHO + SCROLL + BOTÓN FIJO === */
+#moduloModal {
+  max-width: 90vw !important;
+  width: 900px !important;
+  max-height: 90vh !important;
+  overflow-y: auto !important;   /* scroll vertical */
+  padding: 25px;
+  box-sizing: border-box;
+}
+
+/* Contenedor interno para que el texto no toque los bordes */
+#moduloModal .ventana {
+  max-height: none;              /* quitamos límite heredado */
+  overflow-y: visible;           /* el scroll lo maneja el modal */
+  padding: 20px;
+}
+
+/* Botón sticky al final */
+.btn-leer {
+  position: sticky;
+  bottom: 20px;
+  margin: 20px auto 0;
+  display: block;
+  width: fit-content;
+  z-index: 10;
+}
+  </style>
+</head>
+<body>
+
+  <!-- VENTANA 1: Título + Galería -->
+  <div class="ventana">
+    <h1>&#9917; NIQUEE FÚTBOL CLUB</h1>
+    <div class="galeria">
+      <img src="{{ url_for('static', filename='uploads/niqueeblanco.jpg') }}" alt="Equipo 1">
+      <img src="{{ url_for('static', filename='uploads/logo.png') }}" alt="Equipo 2">
+      <img src="{{ url_for('static', filename='uploads/gruponique.jpg') }}" alt="Equipo 3">
+      <img src="{{ url_for('static', filename='uploads/niqueazul.jpg') }}" alt="Equipo 4">
+    </div>
+  </div>
+
+  <!-- VENTANA 2: Botones -->
+  <div class="ventana">
+    <div class="botones">
+      <a href="/admin" class="btn">Panel Admin</a>
+      <button class="btn" onclick="document.getElementById('infoModal').style.display='block'">+ Info</button>
+      <button class="btn" onclick="pedirClavePDF()">Cargar PDF</button>
+      <button class="btn" onclick="abrirModal()">Formulario</button>
+      <div style="margin-top:10px;">
+  <input type="text" id="cedulaTest" placeholder="Ingresa tu cédula" maxlength="20" style="padding:6px;width:200px;">
+  <button class="btn btn-sm btn-success" onclick="buscarYAbrirTest()">Modulos</button>
+</div>
+     <!-- Pide cédula antes de abrir el test -->
+<div style="margin-bottom:10px;">
+  <input type="text" id="cedulaTest" placeholder="Ingresa tu cédula" maxlength="20" style="padding:6px;width:200px;">
+  
+</div>
+    </div>
+  </div>
+
+  <!-- VENTANA 3: Plantilla -->
+  <div class="ventana">
+    <h2>Plantilla de Jugadores</h2>
+    {% for j in jugadores %}
+      <div class="jugador">
+        <img src="{% if j[6] %}{{ j[6] }}{% else %}#{% endif %}" alt="Foto">
+        <div class="info">
+          <strong>{{ j[1]|e }}</strong>
+          <span>{{ j[2]|e }} • {{ j[3]|e }}</span>
+          <span>G:{{ j[4] }} • A:{{ j[5] }}</span>
+          {% if j[7] %}
+            <a href="{{ j[7] }}" download="{{ j[1] | replace(' ', '_') }}_acta.pdf" style="color:#ffff80;font-size:13px;">&#128196; Descargar PDF</a>
+          {% else %}
+            <span style="font-size:12px;color:#aaa;">Sin PDF</span>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- MODALES -->
+  <div id="infoModal" class="ventana" style="display:none;position:fixed;top:20%;left:50%;transform:translateX(-50%);z-index:999;">
+    <span style="float:right;cursor:pointer;" onclick="document.getElementById('infoModal').style.display='none'">&times;</span>
+    <h3>Información del Club</h3>
+    <p>
+      Niquee Fútbol Club nació en 2017 en Guayaquil con la filosofía de adoración a Dios, juego limpio y trabajo en equipo.
+      Participamos en ligas barriales y torneos locales. ¡Buscamos talento honestidad y lealtad!<br>
+      Entrenamientos: lun/mié/vie 18:00-20:00 | Cancha: sintéticas fútbol Garzota samanes<br>
+      Redes: <a href="https://www.facebook.com/share/1CWH1PEHMU/ " target="_blank" style="color:#ffff80">Facebook</a>
+    </p>
+  </div>
+
+  <div id="pdfModal" class="ventana" style="display:none;position:fixed;top:20%;left:50%;transform:translateX(-50%);z-index:999;">
+    <span style="float:right;cursor:pointer;" onclick="document.getElementById('pdfModal').style.display='none'">&times;</span>
+    <h3>Subir PDF de jugador</h3>
+    <form id="pdfForm" enctype="multipart/form-data">
+      <label>Seleccione jugador:</label>
+      <select id="pdfJugador" required>
+        {% for j in jugadores %}
+          <option value="{{ j[0] }}">{{ j[1] }}</option>
+        {% endfor %}
+      </select>
+      <label>Archivo PDF:</label>
+      <input type="file" name="pdf" accept=".pdf" required>
+      <button type="submit" class="btn">Subir PDF</button>
+    </form>
+  </div>
+
+  <footer>
+    @transguthler&amp;asociados • fonos 593958787986-593992123592<br>
+    cguthler@hotmail.com • <a href="https://www.facebook.com/share/1CWH1PEHMU/ " target="_blank" style="color:#ffff80">fb.me/share/1CWH1PEHMU</a><br>
+    Guayaquil – Ecuador
+  </footer>
+
+  <script>
+    const PDF_CLAVE_CORRECTA = "{{ PDF_PASSWORD }}";
+    const FORM_CLAVE_CORRECTA = "{{ FORM_PASSWORD }}";
+
+    function pedirClavePDF() {
+      const intro = prompt("Introduce la contraseña para cargar PDF:");
+      if (intro === PDF_CLAVE_CORRECTA) {
+        document.getElementById('pdfModal').style.display = 'block';
+      } else if (intro !== null) {
+        alert("\u274C Contraseña incorrecta");
+      }
+    }
+
+    document.getElementById('pdfForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const id = document.getElementById('pdfJugador').value;
+      const file = this.pdf.files[0];
+      if (!file) return;
+
+      const fd = new FormData();
+      fd.append('pdf', file);
+      fetch('/subir_pdf/' + encodeURIComponent(id), {
+        method: 'POST',
+        body: fd
+      })
+      .then(() => location.reload())
+      .catch(() => alert('Error al subir'));
+    });
+
+    /* ---------- MODAL INSCRIPCIÓN ---------- */
+    let jugadoresList = []; // [{id, nombre}, ...]
+
+    /* Cargar jugadores al iniciar */
+    (async () => {
+      try {
+        const res = await fetch('/api/jugadores');
+        const data = await res.json();
+        jugadoresList = data.jugadores;
+        const datalist = document.getElementById('listaJugadores');
+        jugadoresList.forEach(j => {
+          const opt = document.createElement('option');
+          opt.value = j.nombre;
+          datalist.appendChild(opt);
+        });
+      } catch (e) {
+        console.error('No se pudieron cargar jugadores', e);
+      }
+    })();
+
+   function abrirModal() {
+  const clave = prompt("Contraseña de administrador para inscripciones:");
+  if (clave === FORM_CLAVE_CORRECTA) {
+    document.getElementById('modalInscripcion').style.display = 'block';
+  } else if (clave !== null) {
+    alert("❌ Contraseña incorrecta");
+  }
+}
+    function cerrarModal() {
+      document.getElementById('modalInscripcion').style.display = 'none';
+      document.getElementById('formInscripcion').reset();
+    }
+
+    async function guardarInscripcion(e) {
+      e.preventDefault();
+      const nombre = document.getElementById('nombres').value.trim();
+      const jugador = jugadoresList.find(j => j.nombre === nombre);
+      if (!jugador) {
+        alert('Seleccione un jugador de la lista.');
+        return;
+      }
+      const payload = {
+        jugador_id: jugador.id,
+        cedula: document.getElementById('cedula').value.trim(),
+        anio: document.getElementById('anio').value,
+        torneo: document.getElementById('torneo').value
+      };
+      const r = await fetch('/api/inscripciones', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const res = await r.json();
+      alert(res.message);
+      cerrarModal();
+    }
+    /* ---------- GUARDAR APROBACIÓN (TEST) ---------- */
+async function finalizar() {
+  const total = preguntas.length;
+  if (aciertos === total) {
+    localStorage.setItem("modulo1", "aprobado");
+
+    // Usa el ID real del jugador que escribió su cédula
+    const jugadorId = window.jugadorIdReal || 1;
+
+      fetch("/guardar_aprobacion_pg", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jugador_id: jugadorId,
+        leccion_numero: 1,
+        nota: aciertos
+      })
+    });
+
+    document.getElementById('resultArea').innerHTML =
+      `<div class="alert alert-success">¡Aprobaste! Estás listo para jugar tu partido.</div>`;
+
+    const btnSiguiente = document.createElement('button');
+    btnSiguiente.className = 'btn btn-success mt-3';
+    btnSiguiente.textContent = 'Ver siguiente lección →';
+    btnSiguiente.onclick = () => abrirLeccionDentro(2);
+    document.getElementById('resultArea').appendChild(btnSiguiente);
+  } else {
+    document.getElementById('resultArea').innerHTML =
+      `<div class="alert alert-warning">Respondiste ${aciertos}/${total}. Necesitas 10/10 para aprobar.</div>`;
+    setTimeout(() => volverAlModal(), 3000);
+  }
+}
+
+/* ---------- FUNCIÓN NUEVA: BUSCAR Y ABRIR TEST ---------- */
+async function buscarYAbrirTest() {
+  const cedula = document.getElementById('cedulaTest').value.trim();
+  if (!cedula) { alert("Ingresa tu cédula"); return; }
+
+  const res = await fetch('/api/jugadores');
+  const data = await res.json();
+  const jugador = data.jugadores.find(j => j.cedula === cedula);
+
+  if (!jugador) { alert("No estás registrado. Regístrate primero."); return; }
+
+  window.jugadorIdReal = jugador.id;
+  abrirLeccionDentro(1); // ✅ ABRE LECCIÓN 1
+}
+  </script>
+
+  <!-- Modal Inscripción -->
+  <div id="modalInscripcion" class="ventana" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%); z-index:9999; max-width:480px; width:90%;">
+    <span style="float:right;cursor:pointer;" onclick="cerrarModal()">&times;</span>
+  
+ <h3>Formulario de Inscripción</h3>
+<form id="formInscripcion" onsubmit="guardarInscripcion(event)">
+  <label>Nombres completos:</label>
+  <input type="text" id="nombres" list="listaJugadores" placeholder="Escribe para ver jugadores" required autocomplete="off">
+  
+  <label>Cédula de ciudadanía:</label>
+  <input type="text" id="cedula" pattern="[0-9]+" maxlength="20" placeholder="Ingrese su cédula" required>
+  <datalist id="listaJugadores"></datalist>
+
+  <label>Año de nacimiento:</label>
+  <input type="number" id="anio" min="1900" max="2100" required>
+
+  <label>Torneo:</label>
+  <select id="torneo" required>
+    <option value="">-- Seleccione --</option>
+    <option>Liga Futbol Fest</option>
+    <option>Liga Internacional World Cup 2026</option>
+    <option>Liga Samanes</option>
+    <option>Liga Miraflores</option>
+    <option>Liga Mucho Lote</option>
+    <option>Duran Amateur League</option>
+    <option>Otros</option>
+  </select>
+
+  <button type="submit" class="btn" style="width:100%; margin-top:15px;">Registrar</button>
+</form> </div>
+</div>   <!-- cierra modalInscripcion -->
+
+<!-- Modal Módulo -->
+<div id="moduloModal" class="ventana modulo-lecciones" style="display:none;position:fixed;top:10%;left:50%;transform:translateX(-50%);z-index:9999;max-width:800px;width:90%;"></div>
+<script>
+const PASS_MODULO = "futbol2025";
+
+function abrirModulo(){
+  const modal = document.getElementById('moduloModal');
+  modal.innerHTML = `
+    <div class="modal-content">
+      <span class="close" onclick="modal.style.display='none'">&times;</span>
+      <h3>Lecciones del Módulo</h3>
+      <div class="list-group">
+        <a href="/leccion/1" target="_blank" class="list-group-item">Lección 1: Fundamentos y reglas</a>
+        <a href="#" class="list-group-item" onclick="abrirLeccionDentro(2)">Lección 2: Pase interior</a>
+        <a href="#" class="list-group-item" onclick="abrirLeccionDentro(3)">Lección 3: Conducción</a>
+        <a href="#" class="list-group-item" onclick="abrirLeccionDentro(4)">Lección 4: Control orientado</a>
+        <a href="#" class="list-group-item" onclick="abrirLeccionDentro(5)">Lección 5: Presión tras pérdida</a>
+        <a href="#" class="list-group-item" onclick="abrirLeccionDentro(6)">Lección 6: Saque de banda</a>
+        <a href="#" class="list-group-item" onclick="abrirLeccionDentro(7)">Lección 7: Corner a favor</a>
+        <a href="#" class="list-group-item" onclick="abrirLeccionDentro(8)">Lección 8: Corner en contra</a>
+        <a href="#" class="list-group-item" onclick="abrirLeccionDentro(9)">Lección 9: Posesión y descanso</a>
+        <a href="#" class="list-group-item" onclick="abrirLeccionDentro(10)">Lección 10: Fair Play y actitud</a>
+      </div>
+      <button class="btn btn-sm btn-secondary mt-3" onclick="location.reload()">Cerrar</button>
+    </div>`;
+  modal.style.display = 'block';
+}
+
+function abrirLeccionDentro(n){
+  fetch("/leccion/" + n)
+    .then(r => r.text())
+    .then(html => {
+      const modal = document.getElementById('moduloModal');
+      modal.innerHTML = html;
+      modal.style.display = 'block';
+      modal.scrollTop = 0;
+    });
+}
+
+function volverAlModal(){
+  location.reload();
+}
+</script>
+<script>
+/* ---------- MODAL CENTRADO Y SCROLLEABLE ---------- */
+function abrirModulo(){
+  /* si ya existe solo lo mostramos */
+  let overlay = document.getElementById('overlayModulos');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'overlayModulos';
+    overlay.style.cssText = `
+      position:fixed; inset:0;                  /* tapa toda la pantalla */
+      background:rgba(0,0,0,.75);               /* fondo oscuro */
+      display:flex; align-items:center; justify-content:center;
+      z-index:9999;
+    `;
+    overlay.innerHTML = `
+      <div style="
+        background:#1b263b; color:#ffff00; border-radius:12px; padding:25px 30px;
+        max-width:480px; width:90%; max-height:80vh; overflow-y:auto;
+        box-shadow:0 8px 30px rgba(0,0,0,.6);
+      ">
+        <span style="float:right;cursor:pointer;" onclick="cerrarModulo()">&times;</span>
+        <h3>Lecciones del Módulo</h3>
+        <div class="list-group" style="margin-top:15px;">
+          ${[...Array(10)].map((_,i)=>`
+            <a href="#" class="list-group-item" onclick="abrirLeccionDentro(${i+1}); return false;">
+              Lección ${i+1}: ${['Fundamentos y reglas','Pase interior','Conducción','Control orientado','Presión tras pérdida','Saque de banda','Corner a favor','Corner en contra','Posesión y descanso','Fair Play y actitud'][i]}
+            </a>`).join('')}
+        </div>
+        <button class="btn btn-sm btn-secondary mt-3" onclick="cerrarModulo()">Cerrar</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click',e=>{ if(e.target===overlay) cerrarModulo(); });
+    document.addEventListener('keydown',e=>{ if(e.key==='Escape') cerrarModulo(); });
+  }
+  overlay.style.display = 'flex';
+}
+
+function cerrarModulo(){
+  const m = document.getElementById('overlayModulos');
+  if(m) m.style.display = 'none';
+}
+
+function abrirLeccionDentro(n){
+  fetch("/leccion/" + n)
+    .then(r => r.text())
+    .then(html => {
+      const modal = document.getElementById('moduloModal');
+      modal.innerHTML = html;
+      modal.style.display = 'block';
+      modal.scrollTop = 0;
+    });
+}
+
+function volverAlModal(){
+  location.reload();
+}
+</script>
+</body>
+</html>
+"""
+ADMIN_LOGIN_HTML = """
+<form method="post" style="max-width:300px;margin:auto">
+  <h2>Admin Login</h2>
+  <input type="password" name="password" placeholder="Contraseña" style="width:100%;padding:8px">
+  <button type="submit" style="width:100%;margin-top:10px">Entrar</button>
+</form>
+"""
+
+ADMIN_PANEL_HTML = """
+<h2>Panel Admin</h2>
+<a href="/">Ver vista pública</a>
+<form method="post" action="/guardar" enctype="multipart/form-data">
+  <label>Nombre completo</label><input name="nombre" required>
+  <label>Cédula:</label>
+<input type="text" name="cedula" pattern="[0-9]+" maxlength="20" placeholder="Cédula del jugador" required>
+  <label>Año de nacimiento</label><input type="number" name="anio_nacimiento" required>
+  <label>Posición</label><input name="posicion" required>
+  <label>Goles</label><input type="number" name="goles" required>
+  <label>Asistencias</label><input type="number" name="asistencias" required>
+  <label>Foto</label><input type="file" name="imagen" accept="image/*">
+  <button type="submit">Guardar Jugador</button>
+</form>
+<hr>
+{% for j in jugadores %}
+ <div>
+  <strong>{{ j[1] }}</strong> |
+  <span>C.I. {{ j[2] }}</span> |
+  <a href="{{ j[7] }}" target="_blank">&#128196; Ver PDF</a>
+  <a href="/borrar/{{ j[0] }}" onclick="return confirm('¿Borrar?')">&#128465; Borrar</a>
+</div>
+{% endfor %}
+"""
+@app.route("/")
+def index():
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    cursor.execute(
+    "SELECT id, nombre, cedula, anio_nacimiento, posicion, goles, asistencias, imagen, pdf_url FROM jugadores ORDER BY id DESC"
+)
+    jugadores = cursor.fetchall()
+    conn.close()
+    return render_template_string(INDEX_HTML, jugadores=jugadores, PDF_PASSWORD=PDF_PASSWORD, FORM_PASSWORD=FORM_PASSWORD)
+
+# ---------- LECCIÓN 1 (texto + test) ----------
+LECCION_1_HTML = """
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Lección 1 - Fundamentos y reglas</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body{background:#1b263b;color:#ffff00;font-family:Segoe UI,system-ui,sans-serif}
+    .ventana{background:#1b263b;border-radius:12px;padding:20px;color:#ffff00}
+    .btn-leer{background:#415a77;color:#ffff00;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;font-size:15px}
+    .btn-leer:hover{background:#5a7fb0}
+    .timer-bar{width:100%;height:6px;background:#eee;margin-bottom:8px}
+    .timer-fill{height:100%;background:#0d6efd;transition:width 1s linear}
+  </style>
+</head>
+<body class="p-4">
+<!-- dentro de LECCION_1_HTML, justo después de <body class="p-4"> -->
+<style>
+  .ventana{max-height:70vh; overflow-y:auto; padding:15px;}
+  #testArea{max-height:60vh; overflow-y:auto;}
+</style>
+
+  <button onclick="volverAlModal()" class="btn btn-sm btn-secondary mb-3">← Volver al módulo</button>
+
+  <div class="ventana" style="max-width:700px;margin:auto">
+    <h4>Lección 1: Fundamentos y reglas del fútbol</h4>
+    <div class="mt-3 p-3 bg-dark rounded small">
+      <p>
+        Listos para el partido esperado, el árbitro coloca el balón sobre el círculo central y pita el inicio. Cada jugador entiende que:<br>
+        Primero, <strong>la mano</strong>: solo el portero puede usarla y solo dentro del rectángulo. Cualquier otro contacto es falta inmediata y, en el área, penal.<br>
+        Segundo, <strong>el offside</strong>: si al recibir estás más cerca del arco que el último defensa, el banderín levanta y la jugada muere.<br>
+        Tercero, <strong>el saque de banda</strong>: dos pies en el campo, balón detrás de la cabeza; si uno se adelanta o la tira mal, pierdes el saque.<br><br>
+
+        Con las reglas claras, llegan los <strong>fundamentos</strong>:<br>
+        - Controlar con el interior del pie o pisarla, no con el empeine, para que la pelota se detenga junto al pie y no tres metros adelante.<br>
+        - Pasar con el interior, tobillo firme, al pie bueno del compañero: reduce un toque y evita el rebote.<br>
+        - Disparar mirando al portero, no pensar al que dirán, y apuntar al poste cercano.<br>
+        - En defensa, marcar de costado, brazo extendido, sin derribar.<br>
+        - Desmarcarse antes de pedir: dos pasos al espacio y una señal con la mano bastan para romper líneas sin offside.<br>
+        - En saques laterales, destinarla al jugador delante nuestro más cercano, llamándole la atención.<br><br>
+
+        Las <strong>mañas</strong> permiten ganar segundos:<br>
+        - Provocar que el balón golpee en las piernas del rival para ganar corners o laterales.<br>
+        - Sacar rápido de banda mientras el otro discute.<br>
+        - Descansar con la pelota dirigiendo el juego hacia el portero nuestro para tomar aliento y volver a empezar.<br><br>
+
+        Pero aparecen los <strong>errores típicos del juego amateur</strong>:<br>
+        - Protestar cada pitazo: amarilla gratuita, reclamarse entre nosotros muestra un equipo nervioso.<br>
+        - Correr todos tras la pelota: se cierra el campo y desaparecen los pases.<br>
+        - Pedirla estático: el defensa ya te tapa y perdés en la primera.<br>
+        - Quedarse mirando la jugada: el rival contraataca y te coge parado en ventaja.<br>
+        - Olvidan volver después de una buena jugada, no marcar hombre a hombre en saques laterales rivales y tiros de esquina.<br>
+        - Salir desde el área por el centro no es recomendable, <strong>SALGA POR LOS LATERALES O A LA RAYA</strong>.<br><br>
+
+        Cuando el árbitro pita el final, el equipo que supo conjugar reglas, fundamentos y pequeñas dosis de profesionalismo se lleva los tres puntos y la satisfacción de haber jugado al fútbol sin sobresaltos ni reclamos.
+      </p>
+    </div>
+
+    <!-- Botón para desplegar el test -->
+    <div class="text-center mt-4">
+      <button class="btn-leer" onclick="mostrarTest()">Leído → Comenzar test</button>
+    </div>
+
+    <!-- Aquí se insertará el test más tarde -->
+    <div id="testArea"></div>
+    <div id="resultArea" class="mt-3"></div>
+  </div>
+
+  <script>
+    function mostrarTest() {
+      // Ocultamos el botón para que no lo aprieten dos veces
+      document.querySelector('.btn-leer').style.display = 'none';
+
+      const TIME_PER_Q = 6;
+      const preguntas = [
+        {q:"¿Quién puede usar las manos dentro del rectángulo?",opts:["Cualquier jugador","Solo el portero","El capitán","Nadie"],ok:1},
+        {q:"¿Qué ocurre si estás más cerca del arco que el último defensa al recibir un pase?",opts:["Gol válido","Falta directa","Offside","Saque de meta"],ok:2},
+        {q:"¿Cómo se debe realizar el saque de banda?",opts:["Con un pie en la línea","Saltando","Dos pies en el campo y pelota detrás de la cabeza","Con la mano"],ok:2},
+        {q:"¿Dónde se cobra un penal?",opts:["Desde el círculo central","Desde el punto penal","Desde la banda","Desde el corner"],ok:1},
+        {q:"¿Con qué parte del pie se recomienda controlar un balón alto?",opts:["Empeine","Planta o interior","Talón","Rodilla"],ok:1},
+        {q:"¿A qué pie se le debe pasar la pelota al compañero?",opts:["Al pie malo","Al que esté más cerca","Al pie bueno","Al que pida de talón"],ok:2},
+        {q:"¿A qué poste se recomienda apuntar al disparar?",opts:["Al que esté más lejos","Al palo cercano","Al árbitro","Al cielo"],ok:1},
+        {q:"¿Cómo se debe marcar al rival?",opts:["Por detrás","De frente","De costado, brazo extendido, sin derribar","Corriendo tras él"],ok:2},
+        {q:"¿Qué se debe hacer antes de pedir la pelota?",opts:["Quedarse quieto","Gritar más fuerte","Desmarcarse con dos pasos y señalar","Esperar al árbitro"],ok:2},
+        {q:"¿Qué error evita el equipo que quiere mantener el orden?",opts:["Salir por el centro del área","Pase largo","Tiro al arco","Corners"],ok:0}
+      ];
+
+      let idx = 0, aciertos = 0, timer = null;
+
+      function mostrarPregunta(){
+        const p = preguntas[idx];
+        let html = `<div class="timer-bar"><div class="timer-fill" style="width:100%"></div></div>
+                    <b>Pregunta ${idx+1}/10</b> – ${p.q}<br><small id="countdown">${TIME_PER_Q}s</small><div class="mt-2">`;
+        p.opts.forEach((o,k)=> html += `
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="opt" id="o${k}" value="${k}">
+            <label class="form-check-label" for="o${k}" style="color:#fff;">${o}</label>
+          </div>`);
+        html += `</div>`;
+        document.getElementById('testArea').innerHTML = html;
+
+        let seg = TIME_PER_Q;
+        const bar = document.querySelector('.timer-fill');
+        const txt = document.getElementById('countdown');
+        timer = setInterval(()=>{
+          seg--;
+          bar.style.width = (seg/TIME_PER_Q*100) + '%';
+          txt.textContent = seg + 's';
+          if(seg === 0){clearInterval(timer); timeOut();}
+        },1000);
+      }
+
+      function timeOut(){
+        alert("Se acabó el tiempo. Volvé a intentarlo.");
+        volverAlModal();
+      }
+
+      function corregir(){
+        const sel = document.querySelector('input[name="opt"]:checked');
+        if(!sel){alert("Elegí una opción."); return;}
+        clearInterval(timer);
+        if(parseInt(sel.value) === preguntas[idx].ok) aciertos++;
+        idx++;
+        if(idx < 10){ mostrarPregunta(); } else { finalizar(); }
+      }
+
+  function finalizar(){
+  const total = preguntas.length;
+  if(aciertos === total){
+    localStorage.setItem("modulo1","aprobado");
+    document.getElementById('resultArea').innerHTML =
+      `<div class="alert alert-success">Usted aprobó el módulo. ¡Felicitaciones, está listo para jugar su partido!</div>`;
+
+      fetch("/guardar_aprobacion_pg", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        jugador_id: 1,
+        leccion_numero: 1,
+        nota: aciertos
+      })
+    });
+
+    // Botón para pasar a la siguiente lección
+    const btnSiguiente = document.createElement('button');
+    btnSiguiente.className = 'btn btn-success mt-3';
+    btnSiguiente.textContent = 'Ver siguiente lección →';
+    btnSiguiente.onclick = () => abrirLeccionDentro(2); // Lección 2 o la que quieras
+    document.getElementById('resultArea').appendChild(btnSiguiente);
+
+  } else {
+    document.getElementById('resultArea').innerHTML =
+      `<div class="alert alert-warning">Respondiste ${aciertos}/${total}. Necesitas 10/10 para aprobar.</div>`;
+    setTimeout(()=> volverAlModal(), 3000);
+       }   // ← cierra else de finalizar()
+    }     // ← cierra function finalizar()
+
+    mostrarPregunta();
+  }       // ← cierra function mostrarTest()
+
+  function volverAlModal() {
+    location.reload();
+  }
+
+  // Función que falta
+  function abrirLeccionDentro(num) {
+    window.location.href = '/leccion/' + num;   // o tu lógica de carga
+  }
+</script>
+
+# ---------- VERIFICAR APROBACIONES ----------
+@app.route("/ver_lecciones")
+def ver_lecciones():
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    
+    rows = cursor.fetchall()
+    conn.close()
+    cursor.execute("""
+        SELECT j.nombre, l.leccion_numero, l.fecha_aprobado, l.nota
+        FROM lecciones_aprobadas l
+        JOIN jugadores j ON j.id = l.jugador_id
+        ORDER BY l.fecha_aprobado DESC
+    """)  # ← este """ cierra el bloque
+    html = "<h2>Lecciones Aprobadas</h2><table border='1' cellpadding='6'><tr><th>Jugador</th><th>Lección</th><th>Fecha</th><th>Nota</th></tr>"
+    for row in rows:
+        html += f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[3]}/10</td></tr>"
+    html += "</table>"
+    return html
+# ---------- GUARDAR APROBACIÓN (Aiven) ----------
+@app.route("/guardar_aprobacion", methods=["POST"])
+def guardar_aprobacion():
+    data = request.get_json()
+    jugador_id = data.get("jugador_id")
+    leccion_numero = data.get("leccion_numero")
+    nota = data.get("nota")
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO lecciones_aprobadas (jugador_id, leccion_numero, nota)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (jugador_id, leccion_numero)
+            DO UPDATE SET nota = EXCLUDED.nota,
+                          fecha_aprobado = NOW()
+            """,
+            (jugador_id, leccion_numero, nota)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return {"status": "error", "msg": str(e)}, 500
+    finally:
+        conn.close()
+
+    return {"status": "ok"}, 200
+    
+ # ---------- SERVIR CUALQUIER LECCIÓN ----------
+@app.route('/leccion/<int:n>')
+def leccion(n):
+    try:
+        with open(f'templates/leccion{n}.html', 'r', encoding='utf-8') as f:
+            return render_template_string(f.read())
+    except FileNotFoundError:
+        return "Lección no encontrada", 404   
+
+# ---------- VER DATOS CRUDOS (solo admin) ----------
+@app.route("/ver_datos")
+def ver_datos():
+    if not session.get("admin"):
+        return redirect(url_for("admin_login"))
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+
+    # 1. jugadores
+    cur.execute("SELECT id, nombre, anio_nacimiento, posicion, imagen FROM jugadores ORDER BY id DESC LIMIT 10")
+    jugadores = cur.fetchall()
+
+    # 2. inscripciones
+    cur.execute("SELECT i.id, j.nombre, i.cedula, i.torneo, i.estado, i.fecha "
+                "FROM inscripciones i JOIN jugadores j ON j.id = i.jugador_id "
+                "ORDER BY i.fecha DESC LIMIT 10")
+    inscripciones = cur.fetchall()
+
+    # 3. lecciones aprobadas
+    cur.execute("SELECT j.nombre, l.leccion_numero, l.nota, l.fecha_aprobado "
+                "FROM lecciones_aprobadas l JOIN jugadores j ON j.id = l.jugador_id "
+                "ORDER BY l.fecha_aprobado DESC LIMIT 10")
+    lecciones = cur.fetchall()
+
+    conn.close()
+
+    html = "<h2>Jugadores (top 10)</h2><ul>"
+    for j in jugadores:
+       html += f"<li>ID {j[0]} – {j[1]} – Año {j[2]} – Pos {j[3]} – Img: {j[4] or 'Sin imagen'}</li>"
+    html += "</ul><h2>Inscripciones (top 10)</h2><ul>"
+    for i in inscripciones:
+        html += f"<li>ID {i[0]} – {i[1]} – CI {i[2]} – Torneo {i[3]} – Estado {i[4]} – {i[5]}</li>"
+    html += "</ul><h2>Lecciones aprobadas (top 10)</h2><ul>"
+    for l in lecciones:
+        html += f"<li>{l[0]} – Lección {l[1]} – Nota {l[2]}/10 – {l[3]}</li>"
+    html += "</ul><a href='/admin/panel'>← Volver</a>"
+    return html
+
+def asegurar_columnas():
+    conn = psycopg2.connect(DATABASE_URL)
+    with conn.cursor() as cur:
+        columnas = [
+            ("posicion", "TEXT"),
+            ("goles", "INTEGER"),
+            ("asistencias", "INTEGER"),
+            ("imagen", "TEXT"),
+            ("fecha_ingreso", "TEXT"),
+            ("pdf_url", "TEXT")
+        ]
+        for col, tipo in columnas:
+            cur.execute(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name='jugadores' AND column_name=%s",
+                (col,)
+            )
+            if not cur.fetchone():
+                cur.execute(
+                    sql.SQL("ALTER TABLE jugadores ADD COLUMN {} {}")
+                    .format(sql.Identifier(col), sql.SQL(tipo))
+                )
+                print(f"✅ Columna '{col}' creada.")
+    conn.commit()
+    conn.close()
+
+# -------------------------------------------------
+# Ejecutar una sola vez al arrancar la aplicación
+# -------------------------------------------------
+init_db()
+asegurar_columnas()
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
